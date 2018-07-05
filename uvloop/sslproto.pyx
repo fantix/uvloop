@@ -196,8 +196,7 @@ class _SSLProtocolTransport(aio_FlowControlMixin, aio_Transport):
         self._closed = True
 
     def _force_close(self, exc):
-        # TODO: SSL over SSL
-        pass
+        self._ssl_protocol._abort()
 
 
 class SSLProtocol(object):

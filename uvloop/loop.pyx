@@ -1534,7 +1534,8 @@ cdef class Loop:
                 f'sslcontext is expected to be an instance of ssl.SSLContext, '
                 f'got {sslcontext!r}')
 
-        if not isinstance(transport, (TCPTransport, UnixTransport)):
+        if not isinstance(transport, (TCPTransport, UnixTransport,
+                                      _SSLProtocolTransport)):
             raise TypeError(
                 f'transport {transport!r} is not supported by start_tls()')
 
