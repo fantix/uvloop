@@ -524,6 +524,8 @@ class SSLProtocol(object):
     # Incoming flow
 
     def _do_read(self):
+        if self._state != _WRAPPED:
+            return
         try:
             if not self._app_reading_paused:
                 if self._app_protocol_is_buffer:

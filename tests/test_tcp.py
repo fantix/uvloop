@@ -9,6 +9,7 @@ import sys
 import threading
 import weakref
 
+from OpenSSL import SSL
 from uvloop import _testbase as tb
 
 
@@ -1855,6 +1856,127 @@ class _TestSSL(tb.SSLTestCase):
             await server.wait_closed()
 
         self.loop.run_until_complete(run_main())
+
+    def test_renegotiation(self):
+        if self.implementation == 'asyncio':
+            raise unittest.SkipTest('asyncio does not support renegotiation')
+
+        CNT = 0
+        TOTAL_CNT = 25
+
+        A_DATA = b'A' * 1024 * 1024
+        B_DATA = b'B' * 1024 * 1024
+
+        sslctx = self._create_server_ssl_context(self.ONLYCERT, self.ONLYKEY)
+        sslctx = SSL.Context(SSL.SSLv23_METHOD)
+        if hasattr(SSL, 'OP_NO_SSLV2'):
+            sslctx.set_options(SSL.OP_NO_SSLV2)
+        sslctx.use_privatekey_file(self.ONLYKEY)
+        sslctx.use_certificate_chain_file(self.ONLYCERT)
+        client_sslctx = self._create_client_ssl_context()
+
+        def server(sock):
+            conn = SSL.Connection(sslctx, sock)
+            conn.set_accept_state()
+
+            data = b''
+            while len(data) < len(A_DATA):
+                try:
+                    chunk = conn.recv(len(A_DATA) - len(data))
+                    if not chunk:
+                        break
+                    data += chunk
+                except SSL.WantReadError:
+                    pass
+            self.assertEqual(data, A_DATA)
+            conn.renegotiate()
+            if conn.renegotiate_pending():
+                conn.send(b'OK')
+            else:
+                conn.send(b'ER')
+
+            data = b''
+            while len(data) < len(B_DATA):
+                try:
+                    chunk = conn.recv(len(B_DATA) - len(data))
+                    if not chunk:
+                        break
+                    data += chunk
+                except SSL.WantReadError:
+                    pass
+            self.assertEqual(data, B_DATA)
+            if conn.renegotiate_pending():
+                conn.send(b'ERRO')
+            else:
+                conn.send(b'SPAM')
+
+            conn.shutdown()
+
+        async def client(addr):
+            extras = {}
+            if self.implementation != 'asyncio' or self.PY37:
+                extras = dict(ssl_handshake_timeout=10.0)
+
+            reader, writer = await asyncio.open_connection(
+                *addr,
+                ssl=client_sslctx,
+                server_hostname='',
+                loop=self.loop,
+                **extras)
+
+            writer.write(A_DATA)
+            self.assertEqual(await reader.readexactly(2), b'OK')
+
+            writer.write(B_DATA)
+            self.assertEqual(await reader.readexactly(4), b'SPAM')
+
+            nonlocal CNT
+            CNT += 1
+
+            writer.close()
+
+        async def client_sock(addr):
+            sock = socket.socket()
+            sock.connect(addr)
+            reader, writer = await asyncio.open_connection(
+                sock=sock,
+                ssl=client_sslctx,
+                server_hostname='',
+                loop=self.loop)
+
+            writer.write(A_DATA)
+            self.assertEqual(await reader.readexactly(2), b'OK')
+
+            writer.write(B_DATA)
+            self.assertEqual(await reader.readexactly(4), b'SPAM')
+
+            nonlocal CNT
+            CNT += 1
+
+            writer.close()
+            sock.close()
+
+        def run(coro):
+            nonlocal CNT
+            CNT = 0
+
+            with self.tcp_server(server,
+                                 max_clients=TOTAL_CNT,
+                                 backlog=TOTAL_CNT) as srv:
+                tasks = []
+                for _ in range(TOTAL_CNT):
+                    tasks.append(coro(srv.addr))
+
+                self.loop.run_until_complete(
+                    asyncio.gather(*tasks, loop=self.loop))
+
+            self.assertEqual(CNT, TOTAL_CNT)
+
+        with self._silence_eof_received_warning():
+            run(client)
+
+        with self._silence_eof_received_warning():
+            run(client_sock)
 
 
 class Test_UV_TCPSSL(_TestSSL, tb.UVTestCase):
