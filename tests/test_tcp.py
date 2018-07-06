@@ -1277,18 +1277,6 @@ class _TestSSL(tb.SSLTestCase):
         async def handle_client(reader, writer):
             nonlocal CNT
 
-            # hack reader and writer to call start_tls()
-            transport = writer._transport
-            writer._transport = None
-            reader._transport = None
-
-            transport = await self.loop.start_tls(
-                transport, writer._protocol, sslctx_2, server_side=True)
-
-            # restore with new transport
-            writer._transport = transport
-            reader._transport = transport
-
             data = await reader.readexactly(len(A_DATA))
             self.assertEqual(data, A_DATA)
             writer.write(b'OK')
@@ -1301,6 +1289,27 @@ class _TestSSL(tb.SSLTestCase):
             writer.close()
 
             CNT += 1
+
+        class ServerProtocol(asyncio.StreamReaderProtocol):
+            def connection_made(self, transport):
+                super_ = super()
+                transport.pause_reading()
+                fut = self._loop.create_task(self._loop.start_tls(
+                    transport, self, sslctx_2, server_side=True))
+
+                def cb(_):
+                    try:
+                        tr = fut.result()
+                    except Exception as ex:
+                        super_.connection_lost(ex)
+                    else:
+                        super_.connection_made(tr)
+                fut.add_done_callback(cb)
+
+        def server_protocol_factory():
+            reader = asyncio.StreamReader(loop=self.loop)
+            protocol = ServerProtocol(reader, handle_client, loop=self.loop)
+            return protocol
 
         async def test_client(addr):
             fut = asyncio.Future(loop=self.loop)
@@ -1316,10 +1325,10 @@ class _TestSSL(tb.SSLTestCase):
                     outgoing = ssl.MemoryBIO()
                     sslobj = client_sslctx_2.wrap_bio(incoming, outgoing)
 
-                    def do(func):
+                    def do(func, *args):
                         while True:
                             try:
-                                rv = func()
+                                rv = func(*args)
                                 break
                             except ssl.SSLWantReadError:
                                 if outgoing.pending:
@@ -1331,14 +1340,17 @@ class _TestSSL(tb.SSLTestCase):
 
                     do(sslobj.do_handshake)
 
-                    do(lambda: sslobj.write(A_DATA))
-                    data = do(lambda: sslobj.read(2))
+                    do(sslobj.write, A_DATA)
+                    data = do(sslobj.read, 2)
                     self.assertEqual(data, b'OK')
 
-                    do(lambda: sslobj.write(B_DATA))
+                    do(sslobj.write, B_DATA)
                     data = b''
-                    while data != b'SPAM':
-                        data += do(lambda: sslobj.read(4))
+                    while True:
+                        chunk = do(sslobj.read, 4)
+                        if not chunk:
+                            break
+                        data += chunk
                     self.assertEqual(data, b'SPAM')
 
                     do(sslobj.unwrap)
@@ -1346,6 +1358,7 @@ class _TestSSL(tb.SSLTestCase):
 
                 except Exception as ex:
                     self.loop.call_soon_threadsafe(fut.set_exception, ex)
+                    sock.close()
                 else:
                     self.loop.call_soon_threadsafe(fut.set_result, None)
 
@@ -1360,12 +1373,11 @@ class _TestSSL(tb.SSLTestCase):
             if self.implementation != 'asyncio' or self.PY37:
                 extras = dict(ssl_handshake_timeout=10.0)
 
-            srv = await asyncio.start_server(
-                handle_client,
+            srv = await self.loop.create_server(
+                server_protocol_factory,
                 '127.0.0.1', 0,
                 family=socket.AF_INET,
                 ssl=sslctx_1,
-                loop=self.loop,
                 **extras)
 
             try:
