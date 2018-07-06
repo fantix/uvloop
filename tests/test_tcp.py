@@ -9,7 +9,7 @@ import sys
 import threading
 import weakref
 
-from OpenSSL import SSL
+from OpenSSL import SSL as openssl_ssl
 from uvloop import _testbase as tb
 
 
@@ -2006,15 +2006,15 @@ class _TestSSL(tb.SSLTestCase):
         B_DATA = b'B' * 1024 * 1024
 
         sslctx = self._create_server_ssl_context(self.ONLYCERT, self.ONLYKEY)
-        sslctx = SSL.Context(SSL.SSLv23_METHOD)
-        if hasattr(SSL, 'OP_NO_SSLV2'):
-            sslctx.set_options(SSL.OP_NO_SSLV2)
+        sslctx = openssl_ssl.Context(openssl_ssl.SSLv23_METHOD)
+        if hasattr(openssl_ssl, 'OP_NO_SSLV2'):
+            sslctx.set_options(openssl_ssl.OP_NO_SSLV2)
         sslctx.use_privatekey_file(self.ONLYKEY)
         sslctx.use_certificate_chain_file(self.ONLYCERT)
         client_sslctx = self._create_client_ssl_context()
 
         def server(sock):
-            conn = SSL.Connection(sslctx, sock)
+            conn = openssl_ssl.Connection(sslctx, sock)
             conn.set_accept_state()
 
             data = b''
@@ -2024,7 +2024,7 @@ class _TestSSL(tb.SSLTestCase):
                     if not chunk:
                         break
                     data += chunk
-                except SSL.WantReadError:
+                except openssl_ssl.WantReadError:
                     pass
             self.assertEqual(data, A_DATA)
             conn.renegotiate()
@@ -2040,7 +2040,7 @@ class _TestSSL(tb.SSLTestCase):
                     if not chunk:
                         break
                     data += chunk
-                except SSL.WantReadError:
+                except openssl_ssl.WantReadError:
                     pass
             self.assertEqual(data, B_DATA)
             if conn.renegotiate_pending():
