@@ -2231,6 +2231,72 @@ class _TestSSL(tb.SSLTestCase):
         for client in clients:
             client.stop()
 
+    def test_shutdown_cleanly(self):
+        if self.implementation == 'asyncio':
+            raise unittest.SkipTest()
+
+        CNT = 0
+        TOTAL_CNT = 25
+
+        A_DATA = b'A' * 1024 * 1024
+
+        sslctx = self._create_server_ssl_context(self.ONLYCERT, self.ONLYKEY)
+        client_sslctx = self._create_client_ssl_context()
+
+        def server(sock):
+            sock.starttls(
+                sslctx,
+                server_side=True)
+
+            data = sock.recv_all(len(A_DATA))
+            self.assertEqual(data, A_DATA)
+            sock.send(b'OK')
+
+            sock.unwrap()
+
+            sock.close()
+
+        async def client(addr):
+            extras = {}
+            if self.implementation != 'asyncio' or self.PY37:
+                extras = dict(ssl_handshake_timeout=10.0)
+
+            reader, writer = await asyncio.open_connection(
+                *addr,
+                ssl=client_sslctx,
+                server_hostname='',
+                loop=self.loop,
+                **extras)
+
+            writer.write(A_DATA)
+            self.assertEqual(await reader.readexactly(2), b'OK')
+
+            await writer.wait_closed()
+
+            nonlocal CNT
+            CNT += 1
+
+            writer.close()
+
+        def run(coro):
+            nonlocal CNT
+            CNT = 0
+
+            with self.tcp_server(server,
+                                 max_clients=TOTAL_CNT,
+                                 backlog=TOTAL_CNT) as srv:
+                tasks = []
+                for _ in range(TOTAL_CNT):
+                    tasks.append(coro(srv.addr))
+
+                self.loop.run_until_complete(
+                    asyncio.gather(*tasks, loop=self.loop))
+
+            self.assertEqual(CNT, TOTAL_CNT)
+
+        with self._silence_eof_received_warning():
+            run(client)
+
 
 class Test_UV_TCPSSL(_TestSSL, tb.UVTestCase):
     pass

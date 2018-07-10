@@ -305,14 +305,13 @@ class SSLProtocol(object):
         meaning a regular EOF is received or the connection was
         aborted or closed).
         """
-        if self._state in (_WRAPPED, _SHUTDOWN):
-            self._loop.call_soon(self._app_protocol.connection_lost, exc)
-        else:
-            # Most likely an exception occurred while in SSL handshake.
+        if self._state == _DO_HANDSHAKE:
             # Just mark the app transport as closed so that its __del__
             # doesn't complain.
             if self._app_transport is not None:
                 self._app_transport._closed = True
+        else:
+            self._loop.call_soon(self._app_protocol.connection_lost, exc)
         self._set_state(_UNWRAPPED)
         self._transport = None
         self._app_transport = None
@@ -498,7 +497,6 @@ class SSLProtocol(object):
         if shutdown_exc:
             self._fatal_error(shutdown_exc)
         else:
-            self._set_state(_UNWRAPPED)
             self._loop.call_soon(self._transport.close)
 
     def _abort(self):
@@ -582,6 +580,7 @@ class SSLProtocol(object):
         if offset:
             self._app_protocol.buffer_updated(offset)
         if not count:
+            # close_notify
             self._start_shutdown()
 
     def _do_read__copied(self):
@@ -601,6 +600,7 @@ class SSLProtocol(object):
         if data:
             self._app_protocol.data_received(b''.join(data))
         if not chunk:
+            # close_notify
             self._start_shutdown()
 
     # Flow control for writes from APP socket
