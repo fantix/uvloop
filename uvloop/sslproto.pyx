@@ -209,13 +209,20 @@ class SSLProtocol(object):
     def __init__(self, loop, app_protocol, sslcontext, waiter,
                  server_side=False, server_hostname=None,
                  call_connection_made=True,
-                 ssl_handshake_timeout=None):
+                 ssl_handshake_timeout=None,
+                 ssl_shutdown_timeout=None):
         if ssl_handshake_timeout is None:
             ssl_handshake_timeout = SSL_HANDSHAKE_TIMEOUT
         elif ssl_handshake_timeout <= 0:
             raise ValueError(
                 f"ssl_handshake_timeout should be a positive number, "
                 f"got {ssl_handshake_timeout}")
+        if ssl_shutdown_timeout is None:
+            ssl_shutdown_timeout = SSL_SHUTDOWN_TIMEOUT
+        elif ssl_shutdown_timeout <= 0:
+            raise ValueError(
+                f"ssl_shutdown_timeout should be a positive number, "
+                f"got {ssl_shutdown_timeout}")
 
         if not sslcontext:
             sslcontext = _create_transport_context(
@@ -243,6 +250,7 @@ class SSLProtocol(object):
         self._transport = None
         self._call_connection_made = call_connection_made
         self._ssl_handshake_timeout = ssl_handshake_timeout
+        self._ssl_shutdown_timeout = ssl_shutdown_timeout
         # SSL and state machine
         self._sslobj = None
         self._incoming = ssl_MemoryBIO()
@@ -297,7 +305,7 @@ class SSLProtocol(object):
         meaning a regular EOF is received or the connection was
         aborted or closed).
         """
-        if self._state == _WRAPPED:
+        if self._state in (_WRAPPED, _SHUTDOWN):
             self._loop.call_soon(self._app_protocol.connection_lost, exc)
         else:
             # Most likely an exception occurred while in SSL handshake.
@@ -328,7 +336,6 @@ class SSLProtocol(object):
             self._do_read()
 
         elif self._state == _SHUTDOWN:
-            self._do_read()
             self._do_shutdown()
 
     def eof_received(self):
@@ -411,8 +418,7 @@ class SSLProtocol(object):
             if exc.errno in (ssl_SSL_ERROR_WANT_READ,
                              ssl_SSL_ERROR_WANT_WRITE,
                              ssl_SSL_ERROR_SYSCALL):
-                if self._outgoing.pending:
-                    self._transport.write(self._outgoing.read())
+                self._process_outgoing()
             else:
                 self._on_handshake_complete(exc)
         else:
@@ -462,20 +468,38 @@ class SSLProtocol(object):
         else:
             self._set_state(_SHUTDOWN)
             self._do_write()  # TODO: wait until all data is flushed
+            self._shutdown_timeout_handle = \
+                self._loop.call_later(self._ssl_shutdown_timeout,
+                                      self._check_shutdown_timeout)
             self._do_shutdown()
+
+    def _check_shutdown_timeout(self):
+        if self._state == _SHUTDOWN:
+            self._transport._force_close(
+                aio_TimeoutError('SSL shutdown timed out'))
 
     def _do_shutdown(self):
         try:
             self._sslobj.unwrap()
         except ssl_SSLError as exc:
-            if exc.errno not in (ssl_SSL_ERROR_WANT_READ,
-                                 ssl_SSL_ERROR_WANT_WRITE,
-                                 ssl_SSL_ERROR_SYSCALL):
-                raise
+            if exc.errno in (ssl_SSL_ERROR_WANT_READ,
+                             ssl_SSL_ERROR_WANT_WRITE,
+                             ssl_SSL_ERROR_SYSCALL):
+                self._process_outgoing()
+            else:
+                self._on_shutdown_complete(exc)
+        else:
+            self._process_outgoing()
+            self._on_shutdown_complete(None)
+
+    def _on_shutdown_complete(self, shutdown_exc):
+        self._shutdown_timeout_handle.cancel()
+
+        if shutdown_exc:
+            self._fatal_error(shutdown_exc)
         else:
             self._set_state(_UNWRAPPED)
             self._loop.call_soon(self._transport.close)
-        self._process_outgoing()
 
     def _abort(self):
         self._set_state(_UNWRAPPED)
@@ -627,7 +651,6 @@ class SSLProtocol(object):
                 if self._state == _WRAPPED:
                     self._do_read()
                 elif self._state == _SHUTDOWN:
-                    self._do_read()
                     self._do_shutdown()
             self._loop.call_soon(resume)
 
