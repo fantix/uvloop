@@ -1,6 +1,8 @@
 import asyncio
 import asyncio.sslproto
 import gc
+import os
+import select
 import socket
 import unittest.mock
 import uvloop
@@ -2127,6 +2129,107 @@ class _TestSSL(tb.SSLTestCase):
 
         with self._silence_eof_received_warning():
             run(client_sock)
+
+    def test_shutdown_timeout(self):
+        if self.implementation == 'asyncio':
+            raise unittest.SkipTest()
+
+        CNT = 0           # number of clients that were successful
+        TOTAL_CNT = 25    # total number of clients that test will create
+        TIMEOUT = 10.0    # timeout for this test
+
+        A_DATA = b'A' * 1024 * 1024
+
+        sslctx = self._create_server_ssl_context(self.ONLYCERT, self.ONLYKEY)
+        client_sslctx = self._create_client_ssl_context()
+
+        clients = []
+
+        async def handle_client(reader, writer):
+            nonlocal CNT
+
+            data = await reader.readexactly(len(A_DATA))
+            self.assertEqual(data, A_DATA)
+            writer.write(b'OK')
+            await writer.drain()
+            writer.close()
+            with self.assertRaisesRegex(asyncio.TimeoutError,
+                                        'SSL shutdown timed out'):
+                await reader.read()
+            CNT += 1
+
+        async def test_client(addr):
+            fut = asyncio.Future(loop=self.loop)
+
+            def prog(sock):
+                try:
+                    sock.starttls(client_sslctx)
+                    sock.connect(addr)
+                    sock.send(A_DATA)
+
+                    data = sock.recv_all(2)
+                    self.assertEqual(data, b'OK')
+
+                    data = sock.recv(1024)
+                    self.assertEqual(data, b'')
+
+                    fd = sock.detach()
+                    try:
+                        select.select([fd], [], [], 3)
+                    finally:
+                        os.close(fd)
+
+                except Exception as ex:
+                    self.loop.call_soon_threadsafe(fut.set_exception, ex)
+                else:
+                    self.loop.call_soon_threadsafe(fut.set_result, None)
+
+            client = self.tcp_client(prog)
+            client.start()
+            clients.append(client)
+
+            await fut
+
+        async def start_server():
+            extras = {}
+            if self.implementation != 'asyncio' or self.PY37:
+                extras['ssl_handshake_timeout'] = 10.0
+            if self.implementation != 'asyncio':  # or self.PY38
+                extras['ssl_shutdown_timeout'] = 0.5
+
+            srv = await asyncio.start_server(
+                handle_client,
+                '127.0.0.1', 0,
+                family=socket.AF_INET,
+                ssl=sslctx,
+                loop=self.loop,
+                **extras)
+
+            try:
+                srv_socks = srv.sockets
+                self.assertTrue(srv_socks)
+
+                addr = srv_socks[0].getsockname()
+
+                tasks = []
+                for _ in range(TOTAL_CNT):
+                    tasks.append(test_client(addr))
+
+                await asyncio.wait_for(
+                    asyncio.gather(*tasks, loop=self.loop),
+                    TIMEOUT, loop=self.loop)
+
+            finally:
+                self.loop.call_soon(srv.close)
+                await srv.wait_closed()
+
+        with self._silence_eof_received_warning():
+            self.loop.run_until_complete(start_server())
+
+        self.assertEqual(CNT, TOTAL_CNT)
+
+        for client in clients:
+            client.stop()
 
 
 class Test_UV_TCPSSL(_TestSSL, tb.UVTestCase):
