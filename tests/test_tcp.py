@@ -2271,7 +2271,7 @@ class _TestSSL(tb.SSLTestCase):
             writer.write(A_DATA)
             self.assertEqual(await reader.readexactly(2), b'OK')
 
-            await writer.wait_closed()
+            self.assertEqual(await reader.read(), b'')
 
             nonlocal CNT
             CNT += 1
