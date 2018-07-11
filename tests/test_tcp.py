@@ -9,6 +9,7 @@ import uvloop
 import ssl
 import sys
 import threading
+import time
 import weakref
 
 from OpenSSL import SSL as openssl_ssl
@@ -2019,7 +2020,6 @@ class _TestSSL(tb.SSLTestCase):
         A_DATA = b'A' * 1024 * 1024
         B_DATA = b'B' * 1024 * 1024
 
-        sslctx = self._create_server_ssl_context(self.ONLYCERT, self.ONLYKEY)
         sslctx = openssl_ssl.Context(openssl_ssl.SSLv23_METHOD)
         if hasattr(openssl_ssl, 'OP_NO_SSLV2'):
             sslctx.set_options(openssl_ssl.OP_NO_SSLV2)
@@ -2345,6 +2345,96 @@ class _TestSSL(tb.SSLTestCase):
 
             with self.tcp_server(unwrap_server) as srv:
                 self.loop.run_until_complete(client(srv.addr))
+
+    @unittest.expectedFailure
+    def test_flush_before_shutdown(self):
+        CHUNK = 1024 * 128
+        SIZE = 32
+
+        sslctx = self._create_server_ssl_context(self.ONLYCERT, self.ONLYKEY)
+        sslctx_openssl = openssl_ssl.Context(openssl_ssl.SSLv23_METHOD)
+        if hasattr(openssl_ssl, 'OP_NO_SSLV2'):
+            sslctx_openssl.set_options(openssl_ssl.OP_NO_SSLV2)
+        sslctx_openssl.use_privatekey_file(self.ONLYKEY)
+        sslctx_openssl.use_certificate_chain_file(self.ONLYCERT)
+        client_sslctx = self._create_client_ssl_context()
+
+        future = None
+
+        def server(sock):
+            sock.starttls(sslctx, server_side=True)
+            self.assertEqual(sock.recv_all(4), b'ping')
+            sock.send(b'pong')
+            time.sleep(0.5)  # hopefully stuck the TCP buffer
+            data = sock.recv_all(CHUNK * SIZE)
+            self.assertEqual(len(data), CHUNK * SIZE)
+            sock.close()
+
+        def openssl_server(sock):
+            conn = openssl_ssl.Connection(sslctx_openssl, sock)
+            conn.set_accept_state()
+
+            while True:
+                try:
+                    data = conn.recv(16384)
+                    self.assertEqual(data, b'ping')
+                    break
+                except openssl_ssl.WantReadError:
+                    pass
+
+            # use renegotiation to queue data in peer _write_backlog
+            conn.renegotiate()
+            conn.send(b'pong')
+
+            data_size = 0
+            while True:
+                try:
+                    chunk = conn.recv(16384)
+                    if not chunk:
+                        break
+                    data_size += len(chunk)
+                except openssl_ssl.WantReadError:
+                    pass
+                except openssl_ssl.ZeroReturnError:
+                    break
+            self.assertEqual(data_size, CHUNK * SIZE)
+
+        def run(meth):
+            def wrapper(sock):
+                try:
+                    meth(sock)
+                except Exception as ex:
+                    future.set_exception(ex)
+                else:
+                    future.set_result(None)
+            return wrapper
+
+        async def client(addr):
+            nonlocal future
+            future = self.loop.create_future()
+            reader, writer = await asyncio.open_connection(
+                *addr,
+                ssl=client_sslctx,
+                server_hostname='',
+                loop=self.loop)
+            writer.write(b'ping')
+            data = await reader.readexactly(4)
+            self.assertEqual(data, b'pong')
+            for _ in range(SIZE):
+                writer.write(b'x' * CHUNK)
+            writer.close()
+            try:
+                data = await reader.read()
+                self.assertEqual(data, b'')
+            except ConnectionResetError:
+                pass
+            await future
+
+        with self.tcp_server(run(server)) as srv:
+            self.loop.run_until_complete(client(srv.addr))
+
+        with self.tcp_server(run(openssl_server)) as srv:
+            self.loop.run_until_complete(client(srv.addr))
 
 
 class Test_UV_TCPSSL(_TestSSL, tb.UVTestCase):
