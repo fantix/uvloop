@@ -192,11 +192,11 @@ class _SSLProtocolTransport(aio_FlowControlMixin, aio_Transport):
         The protocol's connection_lost() method will (eventually) be
         called with None as its argument.
         """
-        self._ssl_protocol._abort()
-        self._closed = True
+        self._force_close(None)
 
     def _force_close(self, exc):
-        self._ssl_protocol._abort()
+        self._closed = True
+        self._ssl_protocol._abort(exc)
 
 
 class SSLProtocol(object):
@@ -257,6 +257,7 @@ class SSLProtocol(object):
         self._outgoing = ssl_MemoryBIO()
         self._ssl_buffer = bytearray(256 * 1024)
         self._state = _UNWRAPPED
+        self._conn_lost = 0  # Set when connection_lost called
 
         # Flow Control
 
@@ -305,12 +306,17 @@ class SSLProtocol(object):
         meaning a regular EOF is received or the connection was
         aborted or closed).
         """
-        if self._state == _DO_HANDSHAKE:
-            # Just mark the app transport as closed so that its __del__
-            # doesn't complain.
-            if self._app_transport is not None:
-                self._app_transport._closed = True
-        else:
+        self._write_backlog.clear()
+        self._outgoing.read()
+        self._write_buffer_size = 0
+        self._conn_lost += 1
+
+        # Just mark the app transport as closed so that its __del__
+        # doesn't complain.
+        if self._app_transport is not None:
+            self._app_transport._closed = True
+
+        if self._state != _DO_HANDSHAKE:
             self._loop.call_soon(self._app_protocol.connection_lost, exc)
         self._set_state(_UNWRAPPED)
         self._transport = None
@@ -462,8 +468,10 @@ class SSLProtocol(object):
     def _start_shutdown(self):
         if self._state in (_SHUTDOWN, _UNWRAPPED):
             return
+        if self._app_transport is not None:
+            self._app_transport._closed = True
         if self._state == _DO_HANDSHAKE:
-            self._abort()
+            self._abort(None)
         else:
             self._set_state(_SHUTDOWN)
             self._do_write()  # TODO: wait until all data is flushed
@@ -499,14 +507,20 @@ class SSLProtocol(object):
         else:
             self._loop.call_soon(self._transport.close)
 
-    def _abort(self):
+    def _abort(self, exc):
         self._set_state(_UNWRAPPED)
         if self._transport is not None:
-            self._transport.abort()
+            self._transport._force_close(exc)
 
     # Outgoing flow
 
     def _write_appdata(self, list_of_data):
+        if self._state in (_SHUTDOWN, _UNWRAPPED):
+            if self._conn_lost >= LOG_THRESHOLD_FOR_CONNLOST_WRITES:
+                aio_logger.warning('SSL connection is closed')
+            self._conn_lost += 1
+            return
+
         for data in list_of_data:
             self._write_backlog.append(memoryview(data))
             self._write_buffer_size += len(data)

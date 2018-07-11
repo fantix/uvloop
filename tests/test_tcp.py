@@ -2297,6 +2297,55 @@ class _TestSSL(tb.SSLTestCase):
         with self._silence_eof_received_warning():
             run(client)
 
+    def test_write_to_closed_transport(self):
+        if self.implementation == 'asyncio':
+            raise unittest.SkipTest()
+
+        sslctx = self._create_server_ssl_context(self.ONLYCERT, self.ONLYKEY)
+        client_sslctx = self._create_client_ssl_context()
+
+        def server(sock):
+            sock.starttls(sslctx, server_side=True)
+            sock.close()
+
+        def unwrap_server(sock):
+            sock.starttls(sslctx, server_side=True)
+            while True:
+                try:
+                    sock.unwrap()
+                    break
+                except OSError as ex:
+                    if ex.errno == 0:
+                        pass
+            sock.close()
+
+        async def client(addr):
+            reader, writer = await asyncio.open_connection(
+                *addr,
+                ssl=client_sslctx,
+                server_hostname='',
+                loop=self.loop)
+            writer.write(b'I AM WRITING NOWHERE1' * 100)
+
+            try:
+                data = await reader.read()
+                self.assertEqual(data, b'')
+            except ConnectionResetError:
+                pass
+
+            for i in range(25):
+                writer.write(b'I AM WRITING NOWHERE2' * 100)
+
+            self.assertEqual(
+                len(writer.transport._ssl_protocol._write_backlog), 0)
+
+        with self._silence_eof_received_warning():
+            with self.tcp_server(server) as srv:
+                self.loop.run_until_complete(client(srv.addr))
+
+            with self.tcp_server(unwrap_server) as srv:
+                self.loop.run_until_complete(client(srv.addr))
+
 
 class Test_UV_TCPSSL(_TestSSL, tb.UVTestCase):
     pass
