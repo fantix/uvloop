@@ -16,7 +16,8 @@ cdef _create_transport_context(server_side, server_hostname):
 _UNWRAPPED = 0
 _DO_HANDSHAKE = 1
 _WRAPPED = 2
-_SHUTDOWN = 3
+_FLUSHING = 3
+_SHUTDOWN = 4
 _STATE_TRANSITIONS = (
     # 0 _UNWRAPPED
     (_DO_HANDSHAKE, _UNWRAPPED),
@@ -25,9 +26,12 @@ _STATE_TRANSITIONS = (
     (_WRAPPED, _UNWRAPPED),
 
     # 2 _WRAPPED
+    (_FLUSHING, _UNWRAPPED),
+
+    # 3 _FLUSHING
     (_SHUTDOWN, _UNWRAPPED),
 
-    # 3 _SHUTDOWN
+    # 4 _SHUTDOWN
     (_UNWRAPPED,),
 )
 
@@ -340,6 +344,9 @@ class SSLProtocol(object):
         elif self._state == _WRAPPED:
             self._do_read()
 
+        elif self._state == _FLUSHING:
+            self._do_flush()
+
         elif self._state == _SHUTDOWN:
             self._do_shutdown()
 
@@ -466,24 +473,48 @@ class SSLProtocol(object):
     # Shutdown flow
 
     def _start_shutdown(self):
-        if self._state in (_SHUTDOWN, _UNWRAPPED):
+        if self._state in (_FLUSHING, _SHUTDOWN, _UNWRAPPED):
             return
         if self._app_transport is not None:
             self._app_transport._closed = True
         if self._state == _DO_HANDSHAKE:
             self._abort(None)
         else:
-            self._set_state(_SHUTDOWN)
-            self._do_write()  # TODO: wait until all data is flushed
+            self._set_state(_FLUSHING)
             self._shutdown_timeout_handle = \
                 self._loop.call_later(self._ssl_shutdown_timeout,
                                       self._check_shutdown_timeout)
-            self._do_shutdown()
+            self._do_flush()
 
     def _check_shutdown_timeout(self):
-        if self._state == _SHUTDOWN:
+        if self._state in (_FLUSHING, _SHUTDOWN):
             self._transport._force_close(
                 aio_TimeoutError('SSL shutdown timed out'))
+
+    def _do_flush(self):
+        if self._write_backlog:
+            try:
+                while True:
+                    chunk = self._sslobj.read(READ_MAX_SIZE)
+                    if not chunk:
+                        # close_notify
+                        break
+            except ssl_SSLError as exc:
+                if exc.errno not in (ssl_SSL_ERROR_WANT_READ,
+                                     ssl_SSL_ERROR_WANT_WRITE,
+                                     ssl_SSL_ERROR_SYSCALL):
+                    self._on_shutdown_complete(exc)
+                    return
+
+            try:
+                self._do_write()
+            except Exception as exc:
+                self._on_shutdown_complete(exc)
+                return
+
+        if not self._write_backlog:
+            self._set_state(_SHUTDOWN)
+            self._do_shutdown()
 
     def _do_shutdown(self):
         try:
@@ -515,7 +546,7 @@ class SSLProtocol(object):
     # Outgoing flow
 
     def _write_appdata(self, list_of_data):
-        if self._state in (_SHUTDOWN, _UNWRAPPED):
+        if self._state in (_FLUSHING, _SHUTDOWN, _UNWRAPPED):
             if self._conn_lost >= LOG_THRESHOLD_FOR_CONNLOST_WRITES:
                 aio_logger.warning('SSL connection is closed')
             self._conn_lost += 1
@@ -664,6 +695,8 @@ class SSLProtocol(object):
             def resume():
                 if self._state == _WRAPPED:
                     self._do_read()
+                elif self._state == _FLUSHING:
+                    self._do_flush()
                 elif self._state == _SHUTDOWN:
                     self._do_shutdown()
             self._loop.call_soon(resume)

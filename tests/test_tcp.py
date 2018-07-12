@@ -2346,8 +2346,10 @@ class _TestSSL(tb.SSLTestCase):
             with self.tcp_server(unwrap_server) as srv:
                 self.loop.run_until_complete(client(srv.addr))
 
-    @unittest.expectedFailure
     def test_flush_before_shutdown(self):
+        if self.implementation == 'asyncio':
+            raise unittest.SkipTest()
+
         CHUNK = 1024 * 128
         SIZE = 32
 
