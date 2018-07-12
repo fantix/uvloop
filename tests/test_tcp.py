@@ -2406,9 +2406,9 @@ class _TestSSL(tb.SSLTestCase):
                 try:
                     meth(sock)
                 except Exception as ex:
-                    future.set_exception(ex)
+                    self.loop.call_soon_threadsafe(future.set_exception, ex)
                 else:
-                    future.set_result(None)
+                    self.loop.call_soon_threadsafe(future.set_result, None)
             return wrapper
 
         async def client(addr):
