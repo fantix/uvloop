@@ -495,8 +495,9 @@ class SSLProtocol(object):
         if self._write_backlog:
             try:
                 while True:
-                    chunk = self._sslobj.read(READ_MAX_SIZE)
-                    if not chunk:
+                    # data is discarded when FLUSHING
+                    chunk_size = len(self._sslobj.read(READ_MAX_SIZE))
+                    if not chunk_size:
                         # close_notify
                         break
             except ssl_SSLError as exc:
