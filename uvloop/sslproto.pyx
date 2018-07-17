@@ -262,6 +262,7 @@ class SSLProtocol(object):
         self._ssl_buffer = bytearray(256 * 1024)
         self._state = _UNWRAPPED
         self._conn_lost = 0  # Set when connection_lost called
+        self._eof_received = False
 
         # Flow Control
 
@@ -362,13 +363,23 @@ class SSLProtocol(object):
             if self._loop.get_debug():
                 aio_logger.debug("%r received EOF", self)
 
-            self._wakeup_waiter(ConnectionResetError)
+            if self._state == _DO_HANDSHAKE:
+                self._on_handshake_complete(ConnectionResetError)
 
-            if self._state != _DO_HANDSHAKE:
-                keep_open = self._app_protocol.eof_received()
-                if keep_open:
-                    aio_logger.warning('returning true from eof_received() '
-                                       'has no effect when using ssl')
+            elif self._state == _WRAPPED:
+                self._set_state(_FLUSHING)
+                self._do_write()
+                self._set_state(_SHUTDOWN)
+                self._do_shutdown()
+
+            elif self._state == _FLUSHING:
+                self._do_write()
+                self._set_state(_SHUTDOWN)
+                self._do_shutdown()
+
+            elif self._state == _SHUTDOWN:
+                self._do_shutdown()
+
         finally:
             self._transport.close()
 
@@ -529,6 +540,7 @@ class SSLProtocol(object):
                 self._on_shutdown_complete(exc)
         else:
             self._process_outgoing()
+            self._call_eof_received()
             self._on_shutdown_complete(None)
 
     def _on_shutdown_complete(self, shutdown_exc):
@@ -627,6 +639,7 @@ class SSLProtocol(object):
             self._app_protocol.buffer_updated(offset)
         if not count:
             # close_notify
+            self._call_eof_received()
             self._start_shutdown()
 
     def _do_read__copied(self):
@@ -647,7 +660,19 @@ class SSLProtocol(object):
             self._app_protocol.data_received(b''.join(data))
         if not chunk:
             # close_notify
+            self._call_eof_received()
             self._start_shutdown()
+
+    def _call_eof_received(self):
+        try:
+            if not self._eof_received:
+                self._eof_received = True
+                keep_open = self._app_protocol.eof_received()
+                if keep_open:
+                    aio_logger.warning('returning true from eof_received() '
+                                       'has no effect when using ssl')
+        except Exception as ex:
+            self._fatal_error(ex, 'Error calling eof_received()')
 
     # Flow control for writes from APP socket
 

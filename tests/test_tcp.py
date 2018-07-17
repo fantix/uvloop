@@ -1573,6 +1573,7 @@ class _TestSSL(tb.SSLTestCase):
             data = sock.recv_all(len(HELLO_MSG))
             self.assertEqual(len(data), len(HELLO_MSG))
 
+            sock.unwrap()
             sock.shutdown(socket.SHUT_RDWR)
             sock.close()
 
@@ -1643,6 +1644,7 @@ class _TestSSL(tb.SSLTestCase):
             data = sock.recv_all(len(HELLO_MSG))
             self.assertEqual(len(data), len(HELLO_MSG))
 
+            sock.unwrap()
             sock.shutdown(socket.SHUT_RDWR)
             sock.close()
 
@@ -1798,6 +1800,7 @@ class _TestSSL(tb.SSLTestCase):
             sock.starttls(client_context)
             sock.sendall(HELLO_MSG)
 
+            sock.unwrap()
             sock.shutdown(socket.SHUT_RDWR)
             sock.close()
 
@@ -2303,9 +2306,11 @@ class _TestSSL(tb.SSLTestCase):
 
         sslctx = self._create_server_ssl_context(self.ONLYCERT, self.ONLYKEY)
         client_sslctx = self._create_client_ssl_context()
+        future = None
 
         def server(sock):
             sock.starttls(sslctx, server_side=True)
+            sock.shutdown(socket.SHUT_RDWR)
             sock.close()
 
         def unwrap_server(sock):
@@ -2320,6 +2325,9 @@ class _TestSSL(tb.SSLTestCase):
             sock.close()
 
         async def client(addr):
+            nonlocal future
+            future = self.loop.create_future()
+
             reader, writer = await asyncio.open_connection(
                 *addr,
                 ssl=client_sslctx,
@@ -2330,7 +2338,7 @@ class _TestSSL(tb.SSLTestCase):
             try:
                 data = await reader.read()
                 self.assertEqual(data, b'')
-            except ConnectionResetError:
+            except (ConnectionResetError, BrokenPipeError):
                 pass
 
             for i in range(25):
@@ -2339,11 +2347,23 @@ class _TestSSL(tb.SSLTestCase):
             self.assertEqual(
                 len(writer.transport._ssl_protocol._write_backlog), 0)
 
+            await future
+
+        def run(meth):
+            def wrapper(sock):
+                try:
+                    meth(sock)
+                except Exception as ex:
+                    self.loop.call_soon_threadsafe(future.set_exception, ex)
+                else:
+                    self.loop.call_soon_threadsafe(future.set_result, None)
+            return wrapper
+
         with self._silence_eof_received_warning():
-            with self.tcp_server(server) as srv:
+            with self.tcp_server(run(server)) as srv:
                 self.loop.run_until_complete(client(srv.addr))
 
-            with self.tcp_server(unwrap_server) as srv:
+            with self.tcp_server(run(unwrap_server)) as srv:
                 self.loop.run_until_complete(client(srv.addr))
 
     def test_flush_before_shutdown(self):
@@ -2436,6 +2456,98 @@ class _TestSSL(tb.SSLTestCase):
             self.loop.run_until_complete(client(srv.addr))
 
         with self.tcp_server(run(openssl_server)) as srv:
+            self.loop.run_until_complete(client(srv.addr))
+
+    def test_remote_shutdown_receives_trailing_data(self):
+        if self.implementation == 'asyncio':
+            raise unittest.SkipTest()
+
+        CHUNK = 1024 * 128
+        SIZE = 32
+
+        sslctx = self._create_server_ssl_context(self.ONLYCERT, self.ONLYKEY)
+        client_sslctx = self._create_client_ssl_context()
+        future = None
+
+        def server(sock):
+            sock.starttls(sslctx, server_side=True)
+            self.assertEqual(sock.recv_all(4), b'ping')
+            sock.send(b'pong')
+
+            time.sleep(0.2)  # wait for the peer to fill its backlog
+
+            # send close_notify but don't wait for response
+            sock.setblocking(0)
+            with self.assertRaises(ssl.SSLWantReadError):
+                sock.unwrap()
+            sock.setblocking(1)
+
+            # should receive all data
+            data = sock.recv_all(CHUNK * SIZE)
+            self.assertEqual(len(data), CHUNK * SIZE)
+
+            # wait for close_notify
+            sock.unwrap()
+
+            sock.close()
+
+        def eof_server(sock):
+            sock.starttls(sslctx, server_side=True)
+            self.assertEqual(sock.recv_all(4), b'ping')
+            sock.send(b'pong')
+
+            time.sleep(0.2)  # wait for the peer to fill its backlog
+
+            # send EOF
+            sock.shutdown(socket.SHUT_WR)
+
+            # should receive all data
+            data = sock.recv_all(CHUNK * SIZE)
+            self.assertEqual(len(data), CHUNK * SIZE)
+
+            sock.close()
+
+        async def client(addr):
+            nonlocal future
+            future = self.loop.create_future()
+
+            reader, writer = await asyncio.open_connection(
+                *addr,
+                ssl=client_sslctx,
+                server_hostname='',
+                loop=self.loop)
+            writer.write(b'ping')
+            data = await reader.readexactly(4)
+            self.assertEqual(data, b'pong')
+
+            # fill write backlog in a hacky way - renegotiation won't help
+            ssl_protocol = writer.transport._ssl_protocol
+            for _ in range(SIZE):
+                ssl_protocol._write_backlog.append(b'x' * CHUNK)
+                ssl_protocol._write_buffer_size += CHUNK
+
+            try:
+                data = await reader.read()
+                self.assertEqual(data, b'')
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+            await future
+
+        def run(meth):
+            def wrapper(sock):
+                try:
+                    meth(sock)
+                except Exception as ex:
+                    self.loop.call_soon_threadsafe(future.set_exception, ex)
+                else:
+                    self.loop.call_soon_threadsafe(future.set_result, None)
+            return wrapper
+
+        with self.tcp_server(run(server)) as srv:
+            self.loop.run_until_complete(client(srv.addr))
+
+        with self.tcp_server(run(eof_server)) as srv:
             self.loop.run_until_complete(client(srv.addr))
 
 
