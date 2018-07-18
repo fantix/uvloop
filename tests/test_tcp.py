@@ -2470,24 +2470,49 @@ class _TestSSL(tb.SSLTestCase):
         future = None
 
         def server(sock):
-            sock.starttls(sslctx, server_side=True)
-            self.assertEqual(sock.recv_all(4), b'ping')
-            sock.send(b'pong')
+            incoming = ssl.MemoryBIO()
+            outgoing = ssl.MemoryBIO()
+            sslobj = sslctx.wrap_bio(incoming, outgoing, server_side=True)
+
+            while True:
+                try:
+                    sslobj.do_handshake()
+                except ssl.SSLWantReadError:
+                    if outgoing.pending:
+                        sock.send(outgoing.read())
+                    incoming.write(sock.recv(16384))
+                else:
+                    if outgoing.pending:
+                        sock.send(outgoing.read())
+                    break
+
+            incoming.write(sock.recv(16384))
+            self.assertEqual(sslobj.read(4), b'ping')
+            sslobj.write(b'pong')
+            sock.send(outgoing.read())
 
             time.sleep(0.2)  # wait for the peer to fill its backlog
 
             # send close_notify but don't wait for response
-            sock.setblocking(0)
             with self.assertRaises(ssl.SSLWantReadError):
-                sock.unwrap()
-            sock.setblocking(1)
+                sslobj.unwrap()
+            sock.send(outgoing.read())
 
             # should receive all data
-            data = sock.recv_all(CHUNK * SIZE)
-            self.assertEqual(len(data), CHUNK * SIZE)
+            data_len = 0
+            while True:
+                try:
+                    chunk = len(sslobj.read(16384))
+                    data_len += chunk
+                except ssl.SSLWantReadError:
+                    incoming.write(sock.recv(16384))
+                except ssl.SSLZeroReturnError:
+                    break
 
-            # wait for close_notify
-            sock.unwrap()
+            self.assertEqual(data_len, CHUNK * SIZE)
+
+            # verify that close_notify is received
+            sslobj.unwrap()
 
             sock.close()
 
