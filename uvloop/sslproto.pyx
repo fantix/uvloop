@@ -328,6 +328,11 @@ class SSLProtocol(object):
         self._app_transport = None
         self._wakeup_waiter(exc)
 
+        if getattr(self, '_shutdown_timeout_handle', None):
+            self._shutdown_timeout_handle.cancel()
+        if getattr(self, '_handshake_timeout_handle', None):
+            self._handshake_timeout_handle.cancel()
+
     def get_buffer(self, n):
         if len(self._ssl_buffer) < n:
             self._ssl_buffer.extend(
