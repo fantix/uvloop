@@ -1,3 +1,5 @@
+# cython: profile=True
+
 cdef _create_transport_context(server_side, server_hostname):
     if server_side:
         raise ValueError('Server side SSL needs a valid SSLContext')
