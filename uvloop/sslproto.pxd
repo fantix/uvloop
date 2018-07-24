@@ -15,7 +15,7 @@ cdef class SSLProtocol:
         object _extra
 
         object _write_backlog
-        int _write_buffer_size
+        size_t _write_buffer_size
 
         object _waiter
         object _loop
@@ -31,18 +31,18 @@ cdef class SSLProtocol:
         object _outgoing
         object _ssl_buffer
         ProtocolState _state
-        int _conn_lost
+        size_t _conn_lost
         bint _eof_received
 
         bint _ssl_writing_paused
         bint _app_reading_paused
 
-        int _incoming_high_water
-        int _incoming_low_water
+        size_t _incoming_high_water
+        size_t _incoming_low_water
 
         bint _app_writing_paused
-        int _outgoing_high_water
-        int _outgoing_low_water
+        size_t _outgoing_high_water
+        size_t _outgoing_low_water
 
         object _app_protocol
         bint _app_protocol_is_buffer
@@ -52,9 +52,9 @@ cdef class SSLProtocol:
         object _shutdown_timeout_handle
 
     cdef _set_app_protocol(self, app_protocol)
-    cdef _wakeup_waiter(self, exc=*)
+    cdef _wakeup_waiter(self, result, bint exc)
     cdef _get_extra_info(self, name, default=*)
-    cdef _set_state(self, new_state)
+    cdef _set_state(self, ProtocolState new_state)
 
     # Handshake flow
 
@@ -88,7 +88,7 @@ cdef class SSLProtocol:
     # Flow control for writes from APP socket
 
     cdef _control_app_writing(self)
-    cdef _get_write_buffer_size(self)
+    cdef size_t _get_write_buffer_size(self)
     cdef _set_write_buffer_limits(self, high=*, low=*)
 
     # Flow control for reads to APP socket

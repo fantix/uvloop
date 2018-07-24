@@ -14,23 +14,6 @@ cdef _create_transport_context(server_side, server_hostname):
     return sslcontext
 
 
-_STATE_TRANSITIONS = (
-    # 0 _UNWRAPPED
-    (_DO_HANDSHAKE, _UNWRAPPED),
-
-    # 1 _DO_HANDSHAKE
-    (_WRAPPED, _UNWRAPPED),
-
-    # 2 _WRAPPED
-    (_FLUSHING, _UNWRAPPED),
-
-    # 3 _FLUSHING
-    (_SHUTDOWN, _UNWRAPPED),
-
-    # 4 _SHUTDOWN
-    (_UNWRAPPED,),
-)
-
 cdef ssize_t READ_MAX_SIZE = 256 * 1024
 
 
@@ -281,14 +264,14 @@ cdef class SSLProtocol:
             hasattr(app_protocol, 'get_buffer')
         )
 
-    cdef _wakeup_waiter(self, exc=None):
+    cdef _wakeup_waiter(self, result, bint is_exc):
         if self._waiter is None:
             return
         if not self._waiter.cancelled():
-            if exc is not None:
-                self._waiter.set_exception(exc)
+            if is_exc:
+                self._waiter.set_exception(result)
             else:
-                self._waiter.set_result(None)
+                self._waiter.set_result(result)
         self._waiter = None
 
     def connection_made(self, transport):
@@ -321,7 +304,7 @@ cdef class SSLProtocol:
         self._set_state(_UNWRAPPED)
         self._transport = None
         self._app_transport = None
-        self._wakeup_waiter(exc)
+        self._wakeup_waiter(exc, True)
 
         if getattr(self, '_shutdown_timeout_handle', None):
             self._shutdown_timeout_handle.cancel()
@@ -391,13 +374,31 @@ cdef class SSLProtocol:
         else:
             return default
 
-    cdef _set_state(self, new_state):
-        if new_state not in _STATE_TRANSITIONS[self._state]:
+    cdef _set_state(self, ProtocolState new_state):
+        cdef bint allowed = False
+
+        if new_state == _UNWRAPPED:
+            allowed = True
+
+        elif self._state == _UNWRAPPED and new_state == _DO_HANDSHAKE:
+            allowed = True
+
+        elif self._state == _DO_HANDSHAKE and new_state == _WRAPPED:
+            allowed = True
+
+        elif self._state == _WRAPPED and new_state == _FLUSHING:
+            allowed = True
+
+        elif self._state == _FLUSHING and new_state == _SHUTDOWN:
+            allowed = True
+
+        if allowed:
+            self._state = new_state
+
+        else:
             raise RuntimeError(
                 'cannot switch state from {} to {}'.format(
                     self._state, new_state))
-
-        self._state = new_state
 
     # Handshake flow
 
@@ -413,7 +414,7 @@ cdef class SSLProtocol:
         # start handshake timeout count down
         self._handshake_timeout_handle = \
             self._loop.call_later(self._ssl_handshake_timeout,
-                                  self._check_handshake_timeout)
+                                  lambda: self._check_handshake_timeout())
 
         try:
             self._sslobj = self._sslcontext.wrap_bio(
@@ -437,13 +438,10 @@ cdef class SSLProtocol:
     cdef _do_handshake(self):
         try:
             self._sslobj.do_handshake()
+        except ssl_SSLAgainErrors as exc:
+            self._process_outgoing()
         except ssl_SSLError as exc:
-            if exc.errno in (ssl_SSL_ERROR_WANT_READ,
-                             ssl_SSL_ERROR_WANT_WRITE,
-                             ssl_SSL_ERROR_SYSCALL):
-                self._process_outgoing()
-            else:
-                self._on_handshake_complete(exc)
+            self._on_handshake_complete(exc)
         else:
             self._on_handshake_complete(None)
 
@@ -478,7 +476,7 @@ cdef class SSLProtocol:
                            ssl_object=sslobj)
         if self._call_connection_made:
             self._app_protocol.connection_made(self._app_transport)
-        self._wakeup_waiter()
+        self._wakeup_waiter(self._app_transport, False)
         self._do_read()
 
     # Shutdown flow
@@ -494,7 +492,7 @@ cdef class SSLProtocol:
             self._set_state(_FLUSHING)
             self._shutdown_timeout_handle = \
                 self._loop.call_later(self._ssl_shutdown_timeout,
-                                      self._check_shutdown_timeout)
+                                      lambda: self._check_shutdown_timeout())
             self._do_flush()
 
     cdef _check_shutdown_timeout(self):
@@ -511,12 +509,11 @@ cdef class SSLProtocol:
                     if not chunk_size:
                         # close_notify
                         break
+            except ssl_SSLAgainErrors as exc:
+                pass
             except ssl_SSLError as exc:
-                if exc.errno not in (ssl_SSL_ERROR_WANT_READ,
-                                     ssl_SSL_ERROR_WANT_WRITE,
-                                     ssl_SSL_ERROR_SYSCALL):
-                    self._on_shutdown_complete(exc)
-                    return
+                self._on_shutdown_complete(exc)
+                return
 
             try:
                 self._do_write()
@@ -531,13 +528,10 @@ cdef class SSLProtocol:
     cdef _do_shutdown(self):
         try:
             self._sslobj.unwrap()
+        except ssl_SSLAgainErrors as exc:
+            self._process_outgoing()
         except ssl_SSLError as exc:
-            if exc.errno in (ssl_SSL_ERROR_WANT_READ,
-                             ssl_SSL_ERROR_WANT_WRITE,
-                             ssl_SSL_ERROR_SYSCALL):
-                self._process_outgoing()
-            else:
-                self._on_shutdown_complete(exc)
+            self._on_shutdown_complete(exc)
         else:
             self._process_outgoing()
             self._call_eof_received()
@@ -576,6 +570,11 @@ cdef class SSLProtocol:
         except Exception as ex:
             self._fatal_error(ex, 'Fatal error on SSL protocol')
 
+    def _append_write_backlog(self, data):
+        # for test only
+        self._write_backlog.append(memoryview(data))
+        self._write_buffer_size += len(data)
+
     cdef _do_write(self):
         try:
             while self._write_backlog:
@@ -587,12 +586,8 @@ cdef class SSLProtocol:
                 else:
                     del self._write_backlog[0]
                     self._write_buffer_size -= len(view)
-        except ssl_SSLError as exc:
-            exc_errno = getattr(exc, 'errno', None)
-            if exc_errno not in (ssl_SSL_ERROR_WANT_READ,
-                                 ssl_SSL_ERROR_WANT_WRITE,
-                                 ssl_SSL_ERROR_SYSCALL):
-                raise
+        except ssl_SSLAgainErrors as exc:
+            pass
         self._process_outgoing()
 
     cdef _process_outgoing(self):
@@ -617,7 +612,11 @@ cdef class SSLProtocol:
             self._fatal_error(ex, 'Fatal error on SSL protocol')
 
     cdef _do_read__buffered(self):
-        buf = memoryview(self._app_protocol.get_buffer(self._incoming.pending))
+        cdef:
+            char[:] buf
+            ssize_t wants, offset
+
+        buf = self._app_protocol.get_buffer(self._incoming.pending)
         wants = len(buf)
         offset = 0
         count = 1
@@ -629,12 +628,9 @@ cdef class SSLProtocol:
                     break
                 offset += count
             else:
-                self._loop.call_soon(self._do_read)
-        except ssl_SSLError as exc:
-            if exc.errno not in (ssl_SSL_ERROR_WANT_READ,
-                                 ssl_SSL_ERROR_WANT_WRITE,
-                                 ssl_SSL_ERROR_SYSCALL):
-                raise
+                self._loop.call_soon(lambda: self._do_read())
+        except ssl_SSLAgainErrors as exc:
+            pass
         if offset:
             self._app_protocol.buffer_updated(offset)
         if not count:
@@ -643,6 +639,9 @@ cdef class SSLProtocol:
             self._start_shutdown()
 
     cdef _do_read__copied(self):
+        cdef:
+            list data
+
         data = []
         chunk = 1
         try:
@@ -651,11 +650,8 @@ cdef class SSLProtocol:
                 if not chunk:
                     break
                 data.append(chunk)
-        except ssl_SSLError as exc:
-            if exc.errno not in (ssl_SSL_ERROR_WANT_READ,
-                                 ssl_SSL_ERROR_WANT_WRITE,
-                                 ssl_SSL_ERROR_SYSCALL):
-                raise
+        except ssl_SSLAgainErrors as exc:
+            pass
         if data:
             self._app_protocol.data_received(b''.join(data))
         if not chunk:
@@ -701,7 +697,7 @@ cdef class SSLProtocol:
                     'protocol': self,
                 })
 
-    cdef _get_write_buffer_size(self):
+    cdef size_t _get_write_buffer_size(self):
         return self._outgoing.pending + self._write_buffer_size
 
     cdef _set_write_buffer_limits(self, high=None, low=None):

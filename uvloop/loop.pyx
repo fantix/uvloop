@@ -1559,14 +1559,12 @@ cdef class Loop:
         resume_cb = self.call_soon(transport.resume_reading)
 
         try:
-            await waiter
+            return await waiter
         except Exception:
             transport.close()
             conmade_cb.cancel()
             resume_cb.cancel()
             raise
-
-        return ssl_protocol._app_transport
 
     @cython.iterable_coroutine
     async def create_server(self, protocol_factory, host=None, port=None,
