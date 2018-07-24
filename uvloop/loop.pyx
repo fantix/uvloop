@@ -1543,7 +1543,7 @@ cdef class Loop:
                 f'transport {transport!r} is not supported by start_tls()')
 
         waiter = self._new_future()
-        ssl_protocol = SSLProtocol(
+        cdef ssl_protocol = SSLProtocol(
             self, protocol, sslcontext, waiter,
             server_side, server_hostname,
             ssl_handshake_timeout=ssl_handshake_timeout,
@@ -1939,7 +1939,7 @@ cdef class Loop:
             except Exception:
                 tr._close()
                 raise
-            return protocol._app_transport, app_protocol
+            return (<SSLProtocol>protocol)._app_transport, app_protocol
         else:
             return tr, protocol
 
@@ -2169,7 +2169,7 @@ cdef class Loop:
             except Exception:
                 tr._close()
                 raise
-            return protocol._app_transport, app_protocol
+            return (<SSLProtocol>protocol)._app_transport, app_protocol
         else:
             return tr, protocol
 
@@ -2533,7 +2533,7 @@ cdef class Loop:
             raise
 
         if ssl:
-            return protocol._app_transport, protocol
+            return (<SSLProtocol>protocol)._app_transport, protocol
         else:
             return transport, protocol
 

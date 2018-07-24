@@ -227,6 +227,7 @@ include "handles/pipe.pxd"
 include "handles/process.pxd"
 
 include "request.pxd"
+include "sslproto.pxd"
 
 include "handles/udp.pxd"
 

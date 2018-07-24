@@ -14,12 +14,6 @@ cdef _create_transport_context(server_side, server_hostname):
     return sslcontext
 
 
-# States of an SSLProtocol
-_UNWRAPPED = 0
-_DO_HANDSHAKE = 1
-_WRAPPED = 2
-_FLUSHING = 3
-_SHUTDOWN = 4
 _STATE_TRANSITIONS = (
     # 0 _UNWRAPPED
     (_DO_HANDSHAKE, _UNWRAPPED),
@@ -41,11 +35,10 @@ cdef ssize_t READ_MAX_SIZE = 256 * 1024
 
 
 class _SSLProtocolTransport(aio_FlowControlMixin, aio_Transport):
-
     # TODO:
     # _sendfile_compatible = constants._SendfileMode.FALLBACK
 
-    def __init__(self, loop, ssl_protocol):
+    def __init__(self, loop, SSLProtocol ssl_protocol):
         self._loop = loop
         # SSLProtocol instance
         self._ssl_protocol = ssl_protocol
@@ -53,13 +46,13 @@ class _SSLProtocolTransport(aio_FlowControlMixin, aio_Transport):
 
     def get_extra_info(self, name, default=None):
         """Get optional transport information."""
-        return self._ssl_protocol._get_extra_info(name, default)
+        return (<SSLProtocol>self._ssl_protocol)._get_extra_info(name, default)
 
     def set_protocol(self, protocol):
-        self._ssl_protocol._set_app_protocol(protocol)
+        (<SSLProtocol>self._ssl_protocol)._set_app_protocol(protocol)
 
     def get_protocol(self):
-        return self._ssl_protocol._app_protocol
+        return (<SSLProtocol>self._ssl_protocol)._app_protocol
 
     def is_closing(self):
         return self._closed
@@ -73,7 +66,7 @@ class _SSLProtocolTransport(aio_FlowControlMixin, aio_Transport):
         with None as its argument.
         """
         self._closed = True
-        self._ssl_protocol._start_shutdown()
+        (<SSLProtocol>self._ssl_protocol)._start_shutdown()
 
     def __del__(self):
         if not self._closed:
@@ -83,7 +76,7 @@ class _SSLProtocolTransport(aio_FlowControlMixin, aio_Transport):
             self.close()
 
     def is_reading(self):
-        return not self._ssl_protocol._app_reading_paused
+        return not (<SSLProtocol>self._ssl_protocol)._app_reading_paused
 
     def pause_reading(self):
         """Pause the receiving end.
@@ -91,7 +84,7 @@ class _SSLProtocolTransport(aio_FlowControlMixin, aio_Transport):
         No data will be passed to the protocol's data_received()
         method until resume_reading() is called.
         """
-        self._ssl_protocol._pause_reading()
+        (<SSLProtocol>self._ssl_protocol)._pause_reading()
 
     def resume_reading(self):
         """Resume the receiving end.
@@ -99,7 +92,7 @@ class _SSLProtocolTransport(aio_FlowControlMixin, aio_Transport):
         Data received will once again be passed to the protocol's
         data_received() method.
         """
-        self._ssl_protocol._resume_reading()
+        (<SSLProtocol>self._ssl_protocol)._resume_reading()
 
     def set_write_buffer_limits(self, high=None, low=None):
         """Set the high- and low-water limits for write flow control.
@@ -120,16 +113,16 @@ class _SSLProtocolTransport(aio_FlowControlMixin, aio_Transport):
         reduces opportunities for doing I/O and computation
         concurrently.
         """
-        self._ssl_protocol._set_write_buffer_limits(high, low)
-        self._ssl_protocol._control_app_writing()
+        (<SSLProtocol>self._ssl_protocol)._set_write_buffer_limits(high, low)
+        (<SSLProtocol>self._ssl_protocol)._control_app_writing()
 
     def get_write_buffer_limits(self):
-        return (self._ssl_protocol._outgoing_low_water,
-                self._ssl_protocol._outgoing_high_water)
+        return ((<SSLProtocol>self._ssl_protocol)._outgoing_low_water,
+                (<SSLProtocol>self._ssl_protocol)._outgoing_high_water)
 
     def get_write_buffer_size(self):
         """Return the current size of the write buffers."""
-        return self._ssl_protocol._get_write_buffer_size()
+        return (<SSLProtocol>self._ssl_protocol)._get_write_buffer_size()
 
     def set_read_buffer_limits(self, high=None, low=None):
         """Set the high- and low-water limits for read flow control.
@@ -150,21 +143,21 @@ class _SSLProtocolTransport(aio_FlowControlMixin, aio_Transport):
         reduces opportunities for doing I/O and computation
         concurrently.
         """
-        self._ssl_protocol._set_read_buffer_limits(high, low)
-        self._ssl_protocol._control_ssl_reading()
+        (<SSLProtocol>self._ssl_protocol)._set_read_buffer_limits(high, low)
+        (<SSLProtocol>self._ssl_protocol)._control_ssl_reading()
 
     def get_read_buffer_limits(self):
-        return (self._ssl_protocol._incoming_low_water,
-                self._ssl_protocol._incoming_high_water)
+        return ((<SSLProtocol>self._ssl_protocol)._incoming_low_water,
+                (<SSLProtocol>self._ssl_protocol)._incoming_high_water)
 
     def get_read_buffer_size(self):
         """Return the current size of the read buffer."""
-        return self._ssl_protocol._get_read_buffer_size()
+        return (<SSLProtocol>self._ssl_protocol)._get_read_buffer_size()
 
     @property
     def _protocol_paused(self):
         # Required for sendfile fallback pause_writing/resume_writing logic
-        return self._ssl_protocol._app_writing_paused
+        return (<SSLProtocol>self._ssl_protocol)._app_writing_paused
 
     def write(self, data):
         """Write some data bytes to the transport.
@@ -177,7 +170,7 @@ class _SSLProtocolTransport(aio_FlowControlMixin, aio_Transport):
                             f"got {type(data).__name__}")
         if not data:
             return
-        self._ssl_protocol._write_appdata((data,))
+        (<SSLProtocol>self._ssl_protocol)._write_appdata((data,))
 
     def writelines(self, list_of_data):
         """Write a list (or any iterable) of data bytes to the transport.
@@ -185,7 +178,7 @@ class _SSLProtocolTransport(aio_FlowControlMixin, aio_Transport):
         The default implementation concatenates the arguments and
         calls write() on the result.
         """
-        self._ssl_protocol._write_appdata(list_of_data)
+        (<SSLProtocol>self._ssl_protocol)._write_appdata(list_of_data)
 
     def can_write_eof(self):
         """Return True if this transport supports write_eof(), False if not."""
@@ -202,10 +195,10 @@ class _SSLProtocolTransport(aio_FlowControlMixin, aio_Transport):
 
     def _force_close(self, exc):
         self._closed = True
-        self._ssl_protocol._abort(exc)
+        (<SSLProtocol>self._ssl_protocol)._abort(exc)
 
 
-class SSLProtocol(object):
+cdef class SSLProtocol:
     """SSL protocol.
 
     Implementation of SSL on top of a socket using incoming and outgoing
@@ -281,14 +274,14 @@ class SSLProtocol(object):
         self._outgoing_low_water = 0
         self._set_write_buffer_limits()
 
-    def _set_app_protocol(self, app_protocol):
+    cdef _set_app_protocol(self, app_protocol):
         self._app_protocol = app_protocol
         self._app_protocol_is_buffer = (
             not hasattr(app_protocol, 'data_received') and
             hasattr(app_protocol, 'get_buffer')
         )
 
-    def _wakeup_waiter(self, exc=None):
+    cdef _wakeup_waiter(self, exc=None):
         if self._waiter is None:
             return
         if not self._waiter.cancelled():
@@ -390,7 +383,7 @@ class SSLProtocol(object):
         finally:
             self._transport.close()
 
-    def _get_extra_info(self, name, default=None):
+    cdef _get_extra_info(self, name, default=None):
         if name in self._extra:
             return self._extra[name]
         elif self._transport is not None:
@@ -398,7 +391,7 @@ class SSLProtocol(object):
         else:
             return default
 
-    def _set_state(self, new_state):
+    cdef _set_state(self, new_state):
         if new_state not in _STATE_TRANSITIONS[self._state]:
             raise RuntimeError(
                 'cannot switch state from {} to {}'.format(
@@ -408,7 +401,7 @@ class SSLProtocol(object):
 
     # Handshake flow
 
-    def _start_handshake(self):
+    cdef _start_handshake(self):
         if self._loop.get_debug():
             aio_logger.debug("%r starts SSL handshake", self)
             self._handshake_start_time = self._loop.time()
@@ -432,7 +425,7 @@ class SSLProtocol(object):
         else:
             self._do_handshake()
 
-    def _check_handshake_timeout(self):
+    cdef _check_handshake_timeout(self):
         if self._state == _DO_HANDSHAKE:
             msg = (
                 f"SSL handshake is taking longer than "
@@ -441,7 +434,7 @@ class SSLProtocol(object):
             )
             self._fatal_error(ConnectionAbortedError(msg))
 
-    def _do_handshake(self):
+    cdef _do_handshake(self):
         try:
             self._sslobj.do_handshake()
         except ssl_SSLError as exc:
@@ -454,7 +447,7 @@ class SSLProtocol(object):
         else:
             self._on_handshake_complete(None)
 
-    def _on_handshake_complete(self, handshake_exc):
+    cdef _on_handshake_complete(self, handshake_exc):
         self._handshake_timeout_handle.cancel()
 
         sslobj = self._sslobj
@@ -490,7 +483,7 @@ class SSLProtocol(object):
 
     # Shutdown flow
 
-    def _start_shutdown(self):
+    cdef _start_shutdown(self):
         if self._state in (_FLUSHING, _SHUTDOWN, _UNWRAPPED):
             return
         if self._app_transport is not None:
@@ -504,12 +497,12 @@ class SSLProtocol(object):
                                       self._check_shutdown_timeout)
             self._do_flush()
 
-    def _check_shutdown_timeout(self):
+    cdef _check_shutdown_timeout(self):
         if self._state in (_FLUSHING, _SHUTDOWN):
             self._transport._force_close(
                 aio_TimeoutError('SSL shutdown timed out'))
 
-    def _do_flush(self):
+    cdef _do_flush(self):
         if self._write_backlog:
             try:
                 while True:
@@ -535,7 +528,7 @@ class SSLProtocol(object):
             self._set_state(_SHUTDOWN)
             self._do_shutdown()
 
-    def _do_shutdown(self):
+    cdef _do_shutdown(self):
         try:
             self._sslobj.unwrap()
         except ssl_SSLError as exc:
@@ -550,7 +543,7 @@ class SSLProtocol(object):
             self._call_eof_received()
             self._on_shutdown_complete(None)
 
-    def _on_shutdown_complete(self, shutdown_exc):
+    cdef _on_shutdown_complete(self, shutdown_exc):
         self._shutdown_timeout_handle.cancel()
 
         if shutdown_exc:
@@ -558,14 +551,14 @@ class SSLProtocol(object):
         else:
             self._loop.call_soon(self._transport.close)
 
-    def _abort(self, exc):
+    cdef _abort(self, exc):
         self._set_state(_UNWRAPPED)
         if self._transport is not None:
             self._transport._force_close(exc)
 
     # Outgoing flow
 
-    def _write_appdata(self, list_of_data):
+    cdef _write_appdata(self, list_of_data):
         if self._state in (_FLUSHING, _SHUTDOWN, _UNWRAPPED):
             if self._conn_lost >= LOG_THRESHOLD_FOR_CONNLOST_WRITES:
                 aio_logger.warning('SSL connection is closed')
@@ -583,7 +576,7 @@ class SSLProtocol(object):
         except Exception as ex:
             self._fatal_error(ex, 'Fatal error on SSL protocol')
 
-    def _do_write(self):
+    cdef _do_write(self):
         try:
             while self._write_backlog:
                 view = self._write_backlog[0]
@@ -602,14 +595,14 @@ class SSLProtocol(object):
                 raise
         self._process_outgoing()
 
-    def _process_outgoing(self):
+    cdef _process_outgoing(self):
         if not self._ssl_writing_paused and self._outgoing.pending:
             self._transport.write(self._outgoing.read())
         self._control_app_writing()
 
     # Incoming flow
 
-    def _do_read(self):
+    cdef _do_read(self):
         if self._state != _WRAPPED:
             return
         try:
@@ -623,7 +616,7 @@ class SSLProtocol(object):
         except Exception as ex:
             self._fatal_error(ex, 'Fatal error on SSL protocol')
 
-    def _do_read__buffered(self):
+    cdef _do_read__buffered(self):
         buf = memoryview(self._app_protocol.get_buffer(self._incoming.pending))
         wants = len(buf)
         offset = 0
@@ -649,7 +642,7 @@ class SSLProtocol(object):
             self._call_eof_received()
             self._start_shutdown()
 
-    def _do_read__copied(self):
+    cdef _do_read__copied(self):
         data = []
         chunk = 1
         try:
@@ -670,7 +663,7 @@ class SSLProtocol(object):
             self._call_eof_received()
             self._start_shutdown()
 
-    def _call_eof_received(self):
+    cdef _call_eof_received(self):
         try:
             if not self._eof_received:
                 self._eof_received = True
@@ -683,7 +676,7 @@ class SSLProtocol(object):
 
     # Flow control for writes from APP socket
 
-    def _control_app_writing(self):
+    cdef _control_app_writing(self):
         size = self._get_write_buffer_size()
         if size >= self._outgoing_high_water and not self._app_writing_paused:
             self._app_writing_paused = True
@@ -708,20 +701,20 @@ class SSLProtocol(object):
                     'protocol': self,
                 })
 
-    def _get_write_buffer_size(self):
+    cdef _get_write_buffer_size(self):
         return self._outgoing.pending + self._write_buffer_size
 
-    def _set_write_buffer_limits(self, high=None, low=None):
+    cdef _set_write_buffer_limits(self, high=None, low=None):
         high, low = _add_water_defaults(high, low, 512)
         self._outgoing_high_water = high
         self._outgoing_low_water = low
 
     # Flow control for reads to APP socket
 
-    def _pause_reading(self):
+    cdef _pause_reading(self):
         self._app_reading_paused = True
 
-    def _resume_reading(self):
+    cdef _resume_reading(self):
         if self._app_reading_paused:
             self._app_reading_paused = False
 
@@ -736,19 +729,19 @@ class SSLProtocol(object):
 
     # Flow control for reads from SSL socket
 
-    def _control_ssl_reading(self):
+    cdef _control_ssl_reading(self):
         size = self._get_read_buffer_size()
         if size >= self._incoming_high_water:
             self._transport.pause_reading()
         elif size <= self._incoming_low_water:
             self._transport.resume_reading()
 
-    def _set_read_buffer_limits(self, high=None, low=None):
+    cdef _set_read_buffer_limits(self, high=None, low=None):
         high, low = _add_water_defaults(high, low, 256)
         self._incoming_high_water = high
         self._incoming_low_water = low
 
-    def _get_read_buffer_size(self):
+    cdef _get_read_buffer_size(self):
         return self._incoming.pending
 
     # Flow control for writes to SSL socket
@@ -768,7 +761,7 @@ class SSLProtocol(object):
         self._ssl_writing_paused = False
         self._process_outgoing()
 
-    def _fatal_error(self, exc, message='Fatal error on transport'):
+    cdef _fatal_error(self, exc, message='Fatal error on transport'):
         if self._transport:
             self._transport._force_close(exc)
 
