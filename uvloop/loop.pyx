@@ -18,7 +18,9 @@ from .includes.python cimport PY_VERSION_HEX, \
                               PyContext, \
                               PyContext_CopyCurrent, \
                               PyContext_Enter, \
-                              PyContext_Exit
+                              PyContext_Exit, \
+                              PyMemoryView_FromMemory, PyBUF_WRITE, \
+                              PyMemoryView_FromObject, PyMemoryView_Check
 
 from libc.stdint cimport uint64_t
 from libc.string cimport memset, strerror, memcpy
@@ -1566,7 +1568,7 @@ cdef class Loop:
             resume_cb.cancel()
             raise
 
-        return ssl_protocol._app_transport
+        return (<SSLProtocol>ssl_protocol)._app_transport
 
     @cython.iterable_coroutine
     async def create_server(self, protocol_factory, host=None, port=None,
@@ -1939,7 +1941,7 @@ cdef class Loop:
             except Exception:
                 tr._close()
                 raise
-            return protocol._app_transport, app_protocol
+            return (<SSLProtocol>protocol)._app_transport, app_protocol
         else:
             return tr, protocol
 
@@ -2169,7 +2171,7 @@ cdef class Loop:
             except Exception:
                 tr._close()
                 raise
-            return protocol._app_transport, app_protocol
+            return (<SSLProtocol>protocol)._app_transport, app_protocol
         else:
             return tr, protocol
 
@@ -2533,7 +2535,7 @@ cdef class Loop:
             raise
 
         if ssl:
-            return protocol._app_transport, protocol
+            return (<SSLProtocol>protocol)._app_transport, protocol
         else:
             return transport, protocol
 

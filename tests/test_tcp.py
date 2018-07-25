@@ -1574,7 +1574,6 @@ class _TestSSL(tb.SSLTestCase):
             self.assertEqual(len(data), len(HELLO_MSG))
 
             sock.unwrap()
-            sock.shutdown(socket.SHUT_RDWR)
             sock.close()
 
         class ClientProto(asyncio.Protocol):
@@ -1645,7 +1644,6 @@ class _TestSSL(tb.SSLTestCase):
             self.assertEqual(len(data), len(HELLO_MSG))
 
             sock.unwrap()
-            sock.shutdown(socket.SHUT_RDWR)
             sock.close()
 
         class ClientProtoFirst(asyncio.BaseProtocol):
@@ -1801,7 +1799,6 @@ class _TestSSL(tb.SSLTestCase):
             sock.sendall(HELLO_MSG)
 
             sock.unwrap()
-            sock.shutdown(socket.SHUT_RDWR)
             sock.close()
 
         class ServerProto(asyncio.Protocol):
@@ -2345,7 +2342,7 @@ class _TestSSL(tb.SSLTestCase):
                 writer.write(b'I AM WRITING NOWHERE2' * 100)
 
             self.assertEqual(
-                len(writer.transport._ssl_protocol._write_backlog), 0)
+                writer.transport.get_write_buffer_size(), 0)
 
             await future
 
@@ -2548,8 +2545,7 @@ class _TestSSL(tb.SSLTestCase):
             # fill write backlog in a hacky way - renegotiation won't help
             ssl_protocol = writer.transport._ssl_protocol
             for _ in range(SIZE):
-                ssl_protocol._write_backlog.append(b'x' * CHUNK)
-                ssl_protocol._write_buffer_size += CHUNK
+                ssl_protocol._append_write_backlog(b'x' * CHUNK)
 
             try:
                 data = await reader.read()
