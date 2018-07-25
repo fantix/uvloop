@@ -23,6 +23,7 @@ branches:
         - ci
         - releases
         - /^v\d+(\.\d+)*$/
+        - profile
 
 matrix:
     fast_finish: true
