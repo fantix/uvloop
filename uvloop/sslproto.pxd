@@ -1,3 +1,5 @@
+from cpython cimport array
+
 cdef enum ProtocolState:
     _UNWRAPPED = 0
     _DO_HANDSHAKE = 1
@@ -29,7 +31,7 @@ cdef class SSLProtocol:
         object _sslobj
         object _incoming
         object _outgoing
-        object _ssl_buffer
+        array.array _ssl_buffer
         ProtocolState _state
         size_t _conn_lost
         bint _eof_received

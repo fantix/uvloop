@@ -237,7 +237,7 @@ cdef class SSLProtocol:
         self._sslobj = None
         self._incoming = ssl_MemoryBIO()
         self._outgoing = ssl_MemoryBIO()
-        self._ssl_buffer = bytearray(256 * 1024)
+        self._ssl_buffer = array.array('b')
         self._state = _UNWRAPPED
         self._conn_lost = 0  # Set when connection_lost called
         self._eof_received = False
@@ -313,14 +313,11 @@ cdef class SSLProtocol:
 
     def get_buffer(self, n):
         if len(self._ssl_buffer) < n:
-            self._ssl_buffer.extend(
-                0 for _ in range(n - len(self._ssl_buffer)))
+            array.resize(self._ssl_buffer, n)
         return self._ssl_buffer
 
     def buffer_updated(self, nbytes):
-        incoming = memoryview(self._ssl_buffer)[:nbytes]
-
-        self._incoming.write(incoming)
+        self._incoming.write(self._ssl_buffer[:nbytes])
 
         if self._state == _DO_HANDSHAKE:
             self._do_handshake()
