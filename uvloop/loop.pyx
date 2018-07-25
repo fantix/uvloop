@@ -18,7 +18,9 @@ from .includes.python cimport PY_VERSION_HEX, \
                               PyContext, \
                               PyContext_CopyCurrent, \
                               PyContext_Enter, \
-                              PyContext_Exit
+                              PyContext_Exit, \
+                              PyMemoryView_FromMemory, PyBUF_WRITE, \
+                              PyMemoryView_FromObject, PyMemoryView_Check
 
 from libc.stdint cimport uint64_t
 from libc.string cimport memset, strerror, memcpy
@@ -1543,7 +1545,7 @@ cdef class Loop:
                 f'transport {transport!r} is not supported by start_tls()')
 
         waiter = self._new_future()
-        cdef ssl_protocol = SSLProtocol(
+        ssl_protocol = SSLProtocol(
             self, protocol, sslcontext, waiter,
             server_side, server_hostname,
             ssl_handshake_timeout=ssl_handshake_timeout,
@@ -1559,12 +1561,14 @@ cdef class Loop:
         resume_cb = self.call_soon(transport.resume_reading)
 
         try:
-            return await waiter
+            await waiter
         except Exception:
             transport.close()
             conmade_cb.cancel()
             resume_cb.cancel()
             raise
+
+        return (<SSLProtocol>ssl_protocol)._app_transport
 
     @cython.iterable_coroutine
     async def create_server(self, protocol_factory, host=None, port=None,

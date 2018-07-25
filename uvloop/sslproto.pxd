@@ -1,5 +1,3 @@
-from cpython cimport array
-
 cdef enum ProtocolState:
     _UNWRAPPED = 0
     _DO_HANDSHAKE = 1
@@ -29,9 +27,15 @@ cdef class SSLProtocol:
         object _ssl_shutdown_timeout
 
         object _sslobj
+        object _sslobj_read
+        object _sslobj_write
         object _incoming
+        object _incoming_write
         object _outgoing
-        array.array _ssl_buffer
+        object _outgoing_read
+        char* _ssl_buffer
+        size_t _ssl_buffer_len
+        object _ssl_buffer_view
         ProtocolState _state
         size_t _conn_lost
         bint _eof_received
@@ -41,6 +45,7 @@ cdef class SSLProtocol:
 
         size_t _incoming_high_water
         size_t _incoming_low_water
+        bint _ssl_reading_paused
 
         bint _app_writing_paused
         size_t _outgoing_high_water
@@ -48,13 +53,15 @@ cdef class SSLProtocol:
 
         object _app_protocol
         bint _app_protocol_is_buffer
+        object _app_protocol_get_buffer
+        object _app_protocol_buffer_updated
 
         object _handshake_start_time
         object _handshake_timeout_handle
         object _shutdown_timeout_handle
 
     cdef _set_app_protocol(self, app_protocol)
-    cdef _wakeup_waiter(self, result, bint exc)
+    cdef _wakeup_waiter(self, exc=*)
     cdef _get_extra_info(self, name, default=*)
     cdef _set_state(self, ProtocolState new_state)
 
@@ -102,5 +109,5 @@ cdef class SSLProtocol:
 
     cdef _control_ssl_reading(self)
     cdef _set_read_buffer_limits(self, high=*, low=*)
-    cdef _get_read_buffer_size(self)
+    cdef size_t _get_read_buffer_size(self)
     cdef _fatal_error(self, exc, message=*)

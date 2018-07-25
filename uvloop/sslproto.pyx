@@ -1,5 +1,3 @@
-# cython: profile=True
-
 cdef _create_transport_context(server_side, server_hostname):
     if server_side:
         raise ValueError('Server side SSL needs a valid SSLContext')
@@ -14,14 +12,15 @@ cdef _create_transport_context(server_side, server_hostname):
     return sslcontext
 
 
-cdef ssize_t READ_MAX_SIZE = 256 * 1024
+cdef object READ_MAX_SIZE = 256 * 1024
 
 
 class _SSLProtocolTransport(aio_FlowControlMixin, aio_Transport):
+
     # TODO:
     # _sendfile_compatible = constants._SendfileMode.FALLBACK
 
-    def __init__(self, loop, SSLProtocol ssl_protocol):
+    def __init__(self, loop, ssl_protocol):
         self._loop = loop
         # SSLProtocol instance
         self._ssl_protocol = ssl_protocol
@@ -188,6 +187,20 @@ cdef class SSLProtocol:
     buffers which are ssl.MemoryBIO objects.
     """
 
+    def __cinit__(self, *_, **__):
+        self._ssl_buffer_len = READ_MAX_SIZE
+        self._ssl_buffer = <char*>PyMem_RawMalloc(self._ssl_buffer_len)
+        if not self._ssl_buffer:
+            raise MemoryError()
+        self._ssl_buffer_view = PyMemoryView_FromMemory(
+            self._ssl_buffer, self._ssl_buffer_len, PyBUF_WRITE)
+
+    def __dealloc__(self):
+        PyMem_RawFree(self._ssl_buffer)
+        self._ssl_buffer_len = 0
+        self._ssl_buffer = NULL
+        self._ssl_buffer_view = None
+
     def __init__(self, loop, app_protocol, sslcontext, waiter,
                  server_side=False, server_hostname=None,
                  call_connection_made=True,
@@ -236,8 +249,9 @@ cdef class SSLProtocol:
         # SSL and state machine
         self._sslobj = None
         self._incoming = ssl_MemoryBIO()
+        self._incoming_write = self._incoming.write
         self._outgoing = ssl_MemoryBIO()
-        self._ssl_buffer = array.array('b')
+        self._outgoing_read = self._outgoing.read
         self._state = _UNWRAPPED
         self._conn_lost = 0  # Set when connection_lost called
         self._eof_received = False
@@ -248,6 +262,7 @@ cdef class SSLProtocol:
 
         self._app_reading_paused = False
 
+        self._ssl_reading_paused = False
         self._incoming_high_water = 0
         self._incoming_low_water = 0
         self._set_read_buffer_limits()
@@ -259,19 +274,22 @@ cdef class SSLProtocol:
 
     cdef _set_app_protocol(self, app_protocol):
         self._app_protocol = app_protocol
-        self._app_protocol_is_buffer = (
-            not hasattr(app_protocol, 'data_received') and
-            hasattr(app_protocol, 'get_buffer')
-        )
+        if (hasattr(app_protocol, 'get_buffer') and
+                not isinstance(app_protocol, aio_Protocol)):
+            self._app_protocol_get_buffer = app_protocol.get_buffer
+            self._app_protocol_buffer_updated = app_protocol.buffer_updated
+            self._app_protocol_is_buffer = True
+        else:
+            self._app_protocol_is_buffer = False
 
-    cdef _wakeup_waiter(self, result, bint is_exc):
+    cdef _wakeup_waiter(self, exc=None):
         if self._waiter is None:
             return
         if not self._waiter.cancelled():
-            if is_exc:
-                self._waiter.set_exception(result)
+            if exc is not None:
+                self._waiter.set_exception(exc)
             else:
-                self._waiter.set_result(result)
+                self._waiter.set_result(None)
         self._waiter = None
 
     def connection_made(self, transport):
@@ -290,8 +308,7 @@ cdef class SSLProtocol:
         aborted or closed).
         """
         self._write_backlog.clear()
-        self._outgoing.read()
-        self._write_buffer_size = 0
+        self._outgoing_read()
         self._conn_lost += 1
 
         # Just mark the app transport as closed so that its __del__
@@ -304,7 +321,7 @@ cdef class SSLProtocol:
         self._set_state(_UNWRAPPED)
         self._transport = None
         self._app_transport = None
-        self._wakeup_waiter(exc, True)
+        self._wakeup_waiter(exc)
 
         if getattr(self, '_shutdown_timeout_handle', None):
             self._shutdown_timeout_handle.cancel()
@@ -312,12 +329,19 @@ cdef class SSLProtocol:
             self._handshake_timeout_handle.cancel()
 
     def get_buffer(self, n):
-        if len(self._ssl_buffer) < n:
-            array.resize(self._ssl_buffer, n)
-        return self._ssl_buffer
+        cdef size_t want = n
+        if self._ssl_buffer_len < want:
+            self._ssl_buffer = <char*>PyMem_RawRealloc(self._ssl_buffer, want)
+            if not self._ssl_buffer:
+                raise MemoryError()
+            self._ssl_buffer_len = want
+            self._ssl_buffer_view = PyMemoryView_FromMemory(
+                self._ssl_buffer, want, PyBUF_WRITE)
+        return self._ssl_buffer_view
 
     def buffer_updated(self, nbytes):
-        self._incoming.write(self._ssl_buffer[:nbytes])
+        self._incoming_write(PyMemoryView_FromMemory(
+                self._ssl_buffer, nbytes, PyBUF_WRITE))
 
         if self._state == _DO_HANDSHAKE:
             self._do_handshake()
@@ -418,6 +442,8 @@ cdef class SSLProtocol:
                 self._incoming, self._outgoing,
                 server_side=self._server_side,
                 server_hostname=self._server_hostname)
+            self._sslobj_read = self._sslobj.read
+            self._sslobj_write = self._sslobj.write
         except Exception as ex:
             self._on_handshake_complete(ex)
         else:
@@ -473,7 +499,7 @@ cdef class SSLProtocol:
                            ssl_object=sslobj)
         if self._call_connection_made:
             self._app_protocol.connection_made(self._app_transport)
-        self._wakeup_waiter(self._app_transport, False)
+        self._wakeup_waiter()
         self._do_read()
 
     # Shutdown flow
@@ -502,7 +528,7 @@ cdef class SSLProtocol:
             try:
                 while True:
                     # data is discarded when FLUSHING
-                    chunk_size = len(self._sslobj.read(READ_MAX_SIZE))
+                    chunk_size = len(self._sslobj_read(READ_MAX_SIZE))
                     if not chunk_size:
                         # close_notify
                         break
@@ -557,7 +583,7 @@ cdef class SSLProtocol:
             return
 
         for data in list_of_data:
-            self._write_backlog.append(memoryview(data))
+            self._write_backlog.append(data)
             self._write_buffer_size += len(data)
 
         try:
@@ -569,27 +595,33 @@ cdef class SSLProtocol:
 
     def _append_write_backlog(self, data):
         # for test only
-        self._write_backlog.append(memoryview(data))
+        self._write_backlog.append(data)
         self._write_buffer_size += len(data)
 
     cdef _do_write(self):
+        cdef size_t data_len, count
         try:
             while self._write_backlog:
-                view = self._write_backlog[0]
-                count = self._sslobj.write(view)
-                if count < len(view):
-                    self._write_backlog[0] = view[count:]
+                data = self._write_backlog[0]
+                count = self._sslobj_write(data)
+                data_len = len(data)
+                if count < data_len:
+                    if not PyMemoryView_Check(data):
+                        data = PyMemoryView_FromObject(data)
+                    self._write_backlog[0] = data[count:]
                     self._write_buffer_size -= count
                 else:
                     del self._write_backlog[0]
-                    self._write_buffer_size -= len(view)
+                    self._write_buffer_size -= data_len
         except ssl_SSLAgainErrors as exc:
             pass
         self._process_outgoing()
 
     cdef _process_outgoing(self):
-        if not self._ssl_writing_paused and self._outgoing.pending:
-            self._transport.write(self._outgoing.read())
+        if not self._ssl_writing_paused:
+            data = self._outgoing_read()
+            if len(data):
+                self._transport.write(data)
         self._control_app_writing()
 
     # Incoming flow
@@ -603,33 +635,52 @@ cdef class SSLProtocol:
                     self._do_read__buffered()
                 else:
                     self._do_read__copied()
-                self._do_write()
+                if self._write_backlog:
+                    self._do_write()
+                else:
+                    self._process_outgoing()
             self._control_ssl_reading()
         except Exception as ex:
             self._fatal_error(ex, 'Fatal error on SSL protocol')
 
     cdef _do_read__buffered(self):
         cdef:
-            char[:] buf
-            ssize_t wants, offset
+            Py_buffer pybuf
+            bint pybuf_inited = False
+            size_t wants, offset = 0
+            int count = 1
+            object buf
 
-        buf = self._app_protocol.get_buffer(self._incoming.pending)
+        buf = self._app_protocol_get_buffer(self._get_read_buffer_size())
         wants = len(buf)
-        offset = 0
-        count = 1
+
         try:
-            while offset < wants:
-                count = self._sslobj.read(min(READ_MAX_SIZE, wants - offset),
-                                          buf[offset:])
-                if not count:
-                    break
-                offset += count
-            else:
-                self._loop.call_soon(lambda: self._do_read())
+            count = self._sslobj_read(wants, buf)
+
+            if count > 0:
+                offset = count
+                if offset < wants:
+                    PyObject_GetBuffer(buf, &pybuf, PyBUF_WRITABLE)
+                    pybuf_inited = True
+                while offset < wants:
+                    buf = PyMemoryView_FromMemory(
+                        (<char*>pybuf.buf) + offset,
+                        wants - offset,
+                        PyBUF_WRITE)
+                    count = self._sslobj_read(wants - offset, buf)
+                    if count > 0:
+                        offset += count
+                    else:
+                        break
+                else:
+                    self._loop.call_soon(lambda: self._do_read())
         except ssl_SSLAgainErrors as exc:
             pass
-        if offset:
-            self._app_protocol.buffer_updated(offset)
+        finally:
+            if pybuf_inited:
+                PyBuffer_Release(&pybuf)
+        if offset > 0:
+            self._app_protocol_buffer_updated(offset)
         if not count:
             # close_notify
             self._call_eof_received()
@@ -638,18 +689,28 @@ cdef class SSLProtocol:
     cdef _do_read__copied(self):
         cdef:
             list data
+            bytes first, chunk = b'1'
+            bint zero = True, one = False
 
-        data = []
-        chunk = 1
         try:
             while True:
-                chunk = self._sslobj.read(READ_MAX_SIZE)
+                chunk = self._sslobj_read(READ_MAX_SIZE)
                 if not chunk:
                     break
-                data.append(chunk)
+                if zero:
+                    zero = False
+                    one = True
+                    first = chunk
+                elif one:
+                    one = False
+                    data = [first, chunk]
+                else:
+                    data.append(chunk)
         except ssl_SSLAgainErrors as exc:
             pass
-        if data:
+        if one:
+            self._app_protocol.data_received(first)
+        elif not zero:
             self._app_protocol.data_received(b''.join(data))
         if not chunk:
             # close_notify
@@ -670,7 +731,7 @@ cdef class SSLProtocol:
     # Flow control for writes from APP socket
 
     cdef _control_app_writing(self):
-        size = self._get_write_buffer_size()
+        cdef size_t size = self._get_write_buffer_size()
         if size >= self._outgoing_high_water and not self._app_writing_paused:
             self._app_writing_paused = True
             try:
@@ -723,10 +784,12 @@ cdef class SSLProtocol:
     # Flow control for reads from SSL socket
 
     cdef _control_ssl_reading(self):
-        size = self._get_read_buffer_size()
-        if size >= self._incoming_high_water:
+        cdef size_t size = self._get_read_buffer_size()
+        if size >= self._incoming_high_water and not self._ssl_reading_paused:
+            self._ssl_reading_paused = True
             self._transport.pause_reading()
-        elif size <= self._incoming_low_water:
+        elif size <= self._incoming_low_water and self._ssl_reading_paused:
+            self._ssl_reading_paused = False
             self._transport.resume_reading()
 
     cdef _set_read_buffer_limits(self, high=None, low=None):
@@ -734,7 +797,7 @@ cdef class SSLProtocol:
         self._incoming_high_water = high
         self._incoming_low_water = low
 
-    cdef _get_read_buffer_size(self):
+    cdef size_t _get_read_buffer_size(self):
         return self._incoming.pending
 
     # Flow control for writes to SSL socket
