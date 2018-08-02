@@ -252,7 +252,7 @@ cdef class SSLProtocol:
         self._incoming_write = self._incoming.write
         self._outgoing = ssl_MemoryBIO()
         self._outgoing_read = self._outgoing.read
-        self._state = _UNWRAPPED
+        self._state = UNWRAPPED
         self._conn_lost = 0  # Set when connection_lost called
         self._eof_received = False
 
@@ -316,9 +316,9 @@ cdef class SSLProtocol:
         if self._app_transport is not None:
             self._app_transport._closed = True
 
-        if self._state != _DO_HANDSHAKE:
+        if self._state != DO_HANDSHAKE:
             self._loop.call_soon(self._app_protocol.connection_lost, exc)
-        self._set_state(_UNWRAPPED)
+        self._set_state(UNWRAPPED)
         self._transport = None
         self._app_transport = None
         self._wakeup_waiter(exc)
@@ -343,16 +343,16 @@ cdef class SSLProtocol:
         self._incoming_write(PyMemoryView_FromMemory(
                 self._ssl_buffer, nbytes, PyBUF_WRITE))
 
-        if self._state == _DO_HANDSHAKE:
+        if self._state == DO_HANDSHAKE:
             self._do_handshake()
 
-        elif self._state == _WRAPPED:
+        elif self._state == WRAPPED:
             self._do_read()
 
-        elif self._state == _FLUSHING:
+        elif self._state == FLUSHING:
             self._do_flush()
 
-        elif self._state == _SHUTDOWN:
+        elif self._state == SHUTDOWN:
             self._do_shutdown()
 
     def eof_received(self):
@@ -367,21 +367,21 @@ cdef class SSLProtocol:
             if self._loop.get_debug():
                 aio_logger.debug("%r received EOF", self)
 
-            if self._state == _DO_HANDSHAKE:
+            if self._state == DO_HANDSHAKE:
                 self._on_handshake_complete(ConnectionResetError)
 
-            elif self._state == _WRAPPED:
-                self._set_state(_FLUSHING)
+            elif self._state == WRAPPED:
+                self._set_state(FLUSHING)
                 self._do_write()
-                self._set_state(_SHUTDOWN)
+                self._set_state(SHUTDOWN)
                 self._do_shutdown()
 
-            elif self._state == _FLUSHING:
+            elif self._state == FLUSHING:
                 self._do_write()
-                self._set_state(_SHUTDOWN)
+                self._set_state(SHUTDOWN)
                 self._do_shutdown()
 
-            elif self._state == _SHUTDOWN:
+            elif self._state == SHUTDOWN:
                 self._do_shutdown()
 
         finally:
@@ -395,22 +395,22 @@ cdef class SSLProtocol:
         else:
             return default
 
-    cdef _set_state(self, ProtocolState new_state):
+    cdef _set_state(self, SSLProtocolState new_state):
         cdef bint allowed = False
 
-        if new_state == _UNWRAPPED:
+        if new_state == UNWRAPPED:
             allowed = True
 
-        elif self._state == _UNWRAPPED and new_state == _DO_HANDSHAKE:
+        elif self._state == UNWRAPPED and new_state == DO_HANDSHAKE:
             allowed = True
 
-        elif self._state == _DO_HANDSHAKE and new_state == _WRAPPED:
+        elif self._state == DO_HANDSHAKE and new_state == WRAPPED:
             allowed = True
 
-        elif self._state == _WRAPPED and new_state == _FLUSHING:
+        elif self._state == WRAPPED and new_state == FLUSHING:
             allowed = True
 
-        elif self._state == _FLUSHING and new_state == _SHUTDOWN:
+        elif self._state == FLUSHING and new_state == SHUTDOWN:
             allowed = True
 
         if allowed:
@@ -430,7 +430,7 @@ cdef class SSLProtocol:
         else:
             self._handshake_start_time = None
 
-        self._set_state(_DO_HANDSHAKE)
+        self._set_state(DO_HANDSHAKE)
 
         # start handshake timeout count down
         self._handshake_timeout_handle = \
@@ -450,7 +450,7 @@ cdef class SSLProtocol:
             self._do_handshake()
 
     cdef _check_handshake_timeout(self):
-        if self._state == _DO_HANDSHAKE:
+        if self._state == DO_HANDSHAKE:
             msg = (
                 f"SSL handshake is taking longer than "
                 f"{self._ssl_handshake_timeout} seconds: "
@@ -474,13 +474,13 @@ cdef class SSLProtocol:
         sslobj = self._sslobj
         try:
             if handshake_exc is None:
-                self._set_state(_WRAPPED)
+                self._set_state(WRAPPED)
             else:
                 raise handshake_exc
 
             peercert = sslobj.getpeercert()
         except Exception as exc:
-            self._set_state(_UNWRAPPED)
+            self._set_state(UNWRAPPED)
             if isinstance(exc, ssl_CertificateError):
                 msg = 'SSL handshake failed on verifying the certificate'
             else:
@@ -505,21 +505,21 @@ cdef class SSLProtocol:
     # Shutdown flow
 
     cdef _start_shutdown(self):
-        if self._state in (_FLUSHING, _SHUTDOWN, _UNWRAPPED):
+        if self._state in (FLUSHING, SHUTDOWN, UNWRAPPED):
             return
         if self._app_transport is not None:
             self._app_transport._closed = True
-        if self._state == _DO_HANDSHAKE:
+        if self._state == DO_HANDSHAKE:
             self._abort(None)
         else:
-            self._set_state(_FLUSHING)
+            self._set_state(FLUSHING)
             self._shutdown_timeout_handle = \
                 self._loop.call_later(self._ssl_shutdown_timeout,
                                       lambda: self._check_shutdown_timeout())
             self._do_flush()
 
     cdef _check_shutdown_timeout(self):
-        if self._state in (_FLUSHING, _SHUTDOWN):
+        if self._state in (FLUSHING, SHUTDOWN):
             self._transport._force_close(
                 aio_TimeoutError('SSL shutdown timed out'))
 
@@ -545,7 +545,7 @@ cdef class SSLProtocol:
                 return
 
         if not self._write_backlog:
-            self._set_state(_SHUTDOWN)
+            self._set_state(SHUTDOWN)
             self._do_shutdown()
 
     cdef _do_shutdown(self):
@@ -569,14 +569,14 @@ cdef class SSLProtocol:
             self._loop.call_soon(self._transport.close)
 
     cdef _abort(self, exc):
-        self._set_state(_UNWRAPPED)
+        self._set_state(UNWRAPPED)
         if self._transport is not None:
             self._transport._force_close(exc)
 
     # Outgoing flow
 
     cdef _write_appdata(self, list_of_data):
-        if self._state in (_FLUSHING, _SHUTDOWN, _UNWRAPPED):
+        if self._state in (FLUSHING, SHUTDOWN, UNWRAPPED):
             if self._conn_lost >= LOG_THRESHOLD_FOR_CONNLOST_WRITES:
                 aio_logger.warning('SSL connection is closed')
             self._conn_lost += 1
@@ -587,7 +587,7 @@ cdef class SSLProtocol:
             self._write_buffer_size += len(data)
 
         try:
-            if self._state == _WRAPPED:
+            if self._state == WRAPPED:
                 self._do_write()
 
         except Exception as ex:
@@ -627,7 +627,7 @@ cdef class SSLProtocol:
     # Incoming flow
 
     cdef _do_read(self):
-        if self._state != _WRAPPED:
+        if self._state != WRAPPED:
             return
         try:
             if not self._app_reading_paused:
@@ -773,11 +773,11 @@ cdef class SSLProtocol:
             self._app_reading_paused = False
 
             def resume():
-                if self._state == _WRAPPED:
+                if self._state == WRAPPED:
                     self._do_read()
-                elif self._state == _FLUSHING:
+                elif self._state == FLUSHING:
                     self._do_flush()
-                elif self._state == _SHUTDOWN:
+                elif self._state == SHUTDOWN:
                     self._do_shutdown()
             self._loop.call_soon(resume)
 

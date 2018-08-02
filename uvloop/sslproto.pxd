@@ -1,9 +1,9 @@
-cdef enum ProtocolState:
-    _UNWRAPPED = 0
-    _DO_HANDSHAKE = 1
-    _WRAPPED = 2
-    _FLUSHING = 3
-    _SHUTDOWN = 4
+cdef enum SSLProtocolState:
+    UNWRAPPED = 0
+    DO_HANDSHAKE = 1
+    WRAPPED = 2
+    FLUSHING = 3
+    SHUTDOWN = 4
 
 
 cdef class SSLProtocol:
@@ -36,7 +36,7 @@ cdef class SSLProtocol:
         char* _ssl_buffer
         size_t _ssl_buffer_len
         object _ssl_buffer_view
-        ProtocolState _state
+        SSLProtocolState _state
         size_t _conn_lost
         bint _eof_received
 
@@ -63,7 +63,7 @@ cdef class SSLProtocol:
     cdef _set_app_protocol(self, app_protocol)
     cdef _wakeup_waiter(self, exc=*)
     cdef _get_extra_info(self, name, default=*)
-    cdef _set_state(self, ProtocolState new_state)
+    cdef _set_state(self, SSLProtocolState new_state)
 
     # Handshake flow
 
