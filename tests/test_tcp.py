@@ -2545,7 +2545,7 @@ class _TestSSL(tb.SSLTestCase):
             # fill write backlog in a hacky way - renegotiation won't help
             ssl_protocol = writer.transport._ssl_protocol
             for _ in range(SIZE):
-                ssl_protocol._append_write_backlog(b'x' * CHUNK)
+                ssl_protocol._test__append_write_backlog(b'x' * CHUNK)
 
             try:
                 data = await reader.read()

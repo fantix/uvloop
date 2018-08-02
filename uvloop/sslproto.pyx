@@ -593,7 +593,7 @@ cdef class SSLProtocol:
         except Exception as ex:
             self._fatal_error(ex, 'Fatal error on SSL protocol')
 
-    def _append_write_backlog(self, data):
+    def _test__append_write_backlog(self, data):
         # for test only
         self._write_backlog.append(data)
         self._write_buffer_size += len(data)
