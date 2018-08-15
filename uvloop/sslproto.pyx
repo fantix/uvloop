@@ -15,7 +15,7 @@ cdef _create_transport_context(server_side, server_hostname):
 cdef object READ_MAX_SIZE = 256 * 1024
 
 
-class _SSLProtocolTransport(aio_FlowControlMixin, aio_Transport):
+class _SSLProtocolTransport:
 
     # TODO:
     # _sendfile_compatible = constants._SendfileMode.FALLBACK
@@ -161,6 +161,13 @@ class _SSLProtocolTransport(aio_FlowControlMixin, aio_Transport):
         calls write() on the result.
         """
         (<SSLProtocol>self._ssl_protocol)._write_appdata(list_of_data)
+
+    def write_eof(self):
+        """Close the write end after flushing buffered data.
+
+        This raises :exc:`NotImplementedError` right now.
+        """
+        raise NotImplementedError
 
     def can_write_eof(self):
         """Return True if this transport supports write_eof(), False if not."""
