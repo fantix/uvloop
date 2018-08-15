@@ -21,6 +21,7 @@ from .includes.python cimport PY_VERSION_HEX, \
                               PyContext_Exit, \
                               PyMemoryView_FromMemory, PyBUF_WRITE, \
                               PyMemoryView_FromObject, PyMemoryView_Check
+from .includes.flowcontrol cimport add_water_defaults
 
 from libc.stdint cimport uint64_t
 from libc.string cimport memset, strerror, memcpy

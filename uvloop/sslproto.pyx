@@ -766,7 +766,8 @@ cdef class SSLProtocol:
         return self._outgoing.pending + self._write_buffer_size
 
     cdef _set_write_buffer_limits(self, high=None, low=None):
-        high, low = _add_water_defaults(high, low, 512)
+        high, low = add_water_defaults(high, low,
+                                       FLOW_CONTROL_HIGH_WATER_SSL_WRITE)
         self._outgoing_high_water = high
         self._outgoing_low_water = low
 
@@ -800,7 +801,8 @@ cdef class SSLProtocol:
             self._transport.resume_reading()
 
     cdef _set_read_buffer_limits(self, high=None, low=None):
-        high, low = _add_water_defaults(high, low, 256)
+        high, low = add_water_defaults(high, low,
+                                       FLOW_CONTROL_HIGH_WATER_SSL_READ)
         self._incoming_high_water = high
         self._incoming_low_water = low
 
@@ -840,19 +842,3 @@ cdef class SSLProtocol:
                 'transport': self._transport,
                 'protocol': self,
             })
-
-
-cdef _add_water_defaults(high, low, kb):
-    if high is None:
-        if low is None:
-            high = kb * 1024
-        else:
-            high = 4 * low
-    if low is None:
-        low = high // 4
-
-    if not high >= low >= 0:
-        raise ValueError(
-            f'high ({high!r}) must be >= low ({low!r}) must be >= 0')
-
-    return high, low
