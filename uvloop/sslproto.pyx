@@ -15,12 +15,12 @@ cdef _create_transport_context(server_side, server_hostname):
 cdef object READ_MAX_SIZE = 256 * 1024
 
 
-class _SSLProtocolTransport:
+cdef class _SSLProtocolTransport:
 
     # TODO:
     # _sendfile_compatible = constants._SendfileMode.FALLBACK
 
-    def __init__(self, loop, ssl_protocol):
+    def __cinit__(self, loop, ssl_protocol):
         self._loop = loop
         # SSLProtocol instance
         self._ssl_protocol = ssl_protocol
@@ -28,13 +28,13 @@ class _SSLProtocolTransport:
 
     def get_extra_info(self, name, default=None):
         """Get optional transport information."""
-        return (<SSLProtocol>self._ssl_protocol)._get_extra_info(name, default)
+        return self._ssl_protocol._get_extra_info(name, default)
 
     def set_protocol(self, protocol):
-        (<SSLProtocol>self._ssl_protocol)._set_app_protocol(protocol)
+        self._ssl_protocol._set_app_protocol(protocol)
 
     def get_protocol(self):
-        return (<SSLProtocol>self._ssl_protocol)._app_protocol
+        return self._ssl_protocol._app_protocol
 
     def is_closing(self):
         return self._closed
@@ -48,17 +48,17 @@ class _SSLProtocolTransport:
         with None as its argument.
         """
         self._closed = True
-        (<SSLProtocol>self._ssl_protocol)._start_shutdown()
+        self._ssl_protocol._start_shutdown()
 
-    def __del__(self):
+    def __dealloc__(self):
         if not self._closed:
             _warn_with_source(
                 "unclosed transport {!r}".format(self),
                 ResourceWarning, self)
-            self.close()
+            self._closed = True
 
     def is_reading(self):
-        return not (<SSLProtocol>self._ssl_protocol)._app_reading_paused
+        return not self._ssl_protocol._app_reading_paused
 
     def pause_reading(self):
         """Pause the receiving end.
@@ -66,7 +66,7 @@ class _SSLProtocolTransport:
         No data will be passed to the protocol's data_received()
         method until resume_reading() is called.
         """
-        (<SSLProtocol>self._ssl_protocol)._pause_reading()
+        self._ssl_protocol._pause_reading()
 
     def resume_reading(self):
         """Resume the receiving end.
@@ -74,7 +74,7 @@ class _SSLProtocolTransport:
         Data received will once again be passed to the protocol's
         data_received() method.
         """
-        (<SSLProtocol>self._ssl_protocol)._resume_reading()
+        self._ssl_protocol._resume_reading()
 
     def set_write_buffer_limits(self, high=None, low=None):
         """Set the high- and low-water limits for write flow control.
@@ -95,16 +95,16 @@ class _SSLProtocolTransport:
         reduces opportunities for doing I/O and computation
         concurrently.
         """
-        (<SSLProtocol>self._ssl_protocol)._set_write_buffer_limits(high, low)
-        (<SSLProtocol>self._ssl_protocol)._control_app_writing()
+        self._ssl_protocol._set_write_buffer_limits(high, low)
+        self._ssl_protocol._control_app_writing()
 
     def get_write_buffer_limits(self):
-        return ((<SSLProtocol>self._ssl_protocol)._outgoing_low_water,
-                (<SSLProtocol>self._ssl_protocol)._outgoing_high_water)
+        return (self._ssl_protocol._outgoing_low_water,
+                self._ssl_protocol._outgoing_high_water)
 
     def get_write_buffer_size(self):
         """Return the current size of the write buffers."""
-        return (<SSLProtocol>self._ssl_protocol)._get_write_buffer_size()
+        return self._ssl_protocol._get_write_buffer_size()
 
     def set_read_buffer_limits(self, high=None, low=None):
         """Set the high- and low-water limits for read flow control.
@@ -125,21 +125,21 @@ class _SSLProtocolTransport:
         reduces opportunities for doing I/O and computation
         concurrently.
         """
-        (<SSLProtocol>self._ssl_protocol)._set_read_buffer_limits(high, low)
-        (<SSLProtocol>self._ssl_protocol)._control_ssl_reading()
+        self._ssl_protocol._set_read_buffer_limits(high, low)
+        self._ssl_protocol._control_ssl_reading()
 
     def get_read_buffer_limits(self):
-        return ((<SSLProtocol>self._ssl_protocol)._incoming_low_water,
-                (<SSLProtocol>self._ssl_protocol)._incoming_high_water)
+        return (self._ssl_protocol._incoming_low_water,
+                self._ssl_protocol._incoming_high_water)
 
     def get_read_buffer_size(self):
         """Return the current size of the read buffer."""
-        return (<SSLProtocol>self._ssl_protocol)._get_read_buffer_size()
+        return self._ssl_protocol._get_read_buffer_size()
 
     @property
     def _protocol_paused(self):
         # Required for sendfile fallback pause_writing/resume_writing logic
-        return (<SSLProtocol>self._ssl_protocol)._app_writing_paused
+        return self._ssl_protocol._app_writing_paused
 
     def write(self, data):
         """Write some data bytes to the transport.
@@ -152,7 +152,7 @@ class _SSLProtocolTransport:
                             f"got {type(data).__name__}")
         if not data:
             return
-        (<SSLProtocol>self._ssl_protocol)._write_appdata((data,))
+        self._ssl_protocol._write_appdata((data,))
 
     def writelines(self, list_of_data):
         """Write a list (or any iterable) of data bytes to the transport.
@@ -160,7 +160,7 @@ class _SSLProtocolTransport:
         The default implementation concatenates the arguments and
         calls write() on the result.
         """
-        (<SSLProtocol>self._ssl_protocol)._write_appdata(list_of_data)
+        self._ssl_protocol._write_appdata(list_of_data)
 
     def write_eof(self):
         """Close the write end after flushing buffered data.
@@ -184,7 +184,12 @@ class _SSLProtocolTransport:
 
     def _force_close(self, exc):
         self._closed = True
-        (<SSLProtocol>self._ssl_protocol)._abort(exc)
+        self._ssl_protocol._abort(exc)
+
+    def _test__append_write_backlog(self, data):
+        # for test only
+        self._ssl_protocol._write_backlog.append(data)
+        self._ssl_protocol._write_buffer_size += len(data)
 
 
 cdef class SSLProtocol:
@@ -318,7 +323,7 @@ cdef class SSLProtocol:
         self._outgoing_read()
         self._conn_lost += 1
 
-        # Just mark the app transport as closed so that its __del__
+        # Just mark the app transport as closed so that its __dealloc__
         # doesn't complain.
         if self._app_transport is not None:
             self._app_transport._closed = True
@@ -599,11 +604,6 @@ cdef class SSLProtocol:
 
         except Exception as ex:
             self._fatal_error(ex, 'Fatal error on SSL protocol')
-
-    def _test__append_write_backlog(self, data):
-        # for test only
-        self._write_backlog.append(data)
-        self._write_buffer_size += len(data)
 
     cdef _do_write(self):
         cdef size_t data_len, count

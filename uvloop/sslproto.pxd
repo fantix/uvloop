@@ -6,6 +6,13 @@ cdef enum SSLProtocolState:
     SHUTDOWN = 4
 
 
+cdef class _SSLProtocolTransport:
+    cdef:
+        object _loop
+        SSLProtocol _ssl_protocol
+        bint _closed
+
+
 cdef class SSLProtocol:
     cdef:
         bint _server_side
@@ -19,7 +26,7 @@ cdef class SSLProtocol:
 
         object _waiter
         object _loop
-        object _app_transport
+        _SSLProtocolTransport _app_transport
 
         object _transport
         bint _call_connection_made
