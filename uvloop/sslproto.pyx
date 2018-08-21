@@ -205,10 +205,10 @@ cdef class SSLProtocol:
             self._ssl_buffer, self._ssl_buffer_len, PyBUF_WRITE)
 
     def __dealloc__(self):
-        PyMem_RawFree(self._ssl_buffer)
-        self._ssl_buffer_len = 0
-        self._ssl_buffer = NULL
         self._ssl_buffer_view = None
+        PyMem_RawFree(self._ssl_buffer)
+        self._ssl_buffer = NULL
+        self._ssl_buffer_len = 0
 
     def __init__(self, loop, app_protocol, sslcontext, waiter,
                  server_side=False, server_hostname=None,

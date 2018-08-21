@@ -77,6 +77,8 @@ class EchoProtocol(asyncio.Protocol):
 class EchoBufferedProtocol(asyncio.BufferedProtocol):
     def connection_made(self, transport):
         self.transport = transport
+        # Here the buffer is intended to be copied, so that the outgoing buffer
+        # won't be wrongly updated by next read
         self.buffer = bytearray(256 * 1024)
 
     def connection_lost(self, exc):
