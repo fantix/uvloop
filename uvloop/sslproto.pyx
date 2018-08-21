@@ -12,9 +12,6 @@ cdef _create_transport_context(server_side, server_hostname):
     return sslcontext
 
 
-cdef object READ_MAX_SIZE = 256 * 1024
-
-
 cdef class _SSLProtocolTransport:
 
     # TODO:
@@ -200,7 +197,7 @@ cdef class SSLProtocol:
     """
 
     def __cinit__(self, *_, **__):
-        self._ssl_buffer_len = READ_MAX_SIZE
+        self._ssl_buffer_len = SSL_READ_MAX_SIZE
         self._ssl_buffer = <char*>PyMem_RawMalloc(self._ssl_buffer_len)
         if not self._ssl_buffer:
             raise MemoryError()
@@ -342,6 +339,8 @@ cdef class SSLProtocol:
 
     def get_buffer(self, n):
         cdef size_t want = n
+        if want > SSL_READ_MAX_SIZE:
+            want = SSL_READ_MAX_SIZE
         if self._ssl_buffer_len < want:
             self._ssl_buffer = <char*>PyMem_RawRealloc(self._ssl_buffer, want)
             if not self._ssl_buffer:
@@ -540,7 +539,7 @@ cdef class SSLProtocol:
             try:
                 while True:
                     # data is discarded when FLUSHING
-                    chunk_size = len(self._sslobj_read(READ_MAX_SIZE))
+                    chunk_size = len(self._sslobj_read(SSL_READ_MAX_SIZE))
                     if not chunk_size:
                         # close_notify
                         break
@@ -701,7 +700,7 @@ cdef class SSLProtocol:
 
         try:
             while True:
-                chunk = self._sslobj_read(READ_MAX_SIZE)
+                chunk = self._sslobj_read(SSL_READ_MAX_SIZE)
                 if not chunk:
                     break
                 if zero:
