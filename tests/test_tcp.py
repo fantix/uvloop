@@ -2523,8 +2523,15 @@ class _TestSSL(tb.SSLTestCase):
                         sock.send(outgoing.read())
                     break
 
-            incoming.write(sock.recv(16384))
-            self.assertEqual(sslobj.read(4), b'ping')
+            while True:
+                try:
+                    data = sslobj.read(4)
+                except ssl.SSLWantReadError:
+                    incoming.write(sock.recv(16384))
+                else:
+                    break
+
+            self.assertEqual(data, b'ping')
             sslobj.write(b'pong')
             sock.send(outgoing.read())
 
