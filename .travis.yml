@@ -23,6 +23,7 @@ branches:
         - ci
         - releases
         - /^v\d+(\.\d+)*$/
+        - t197_fix_sslproto_crash
 
 matrix:
     fast_finish: true
