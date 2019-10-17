@@ -2246,9 +2246,11 @@ class _TestSSL(tb.SSLTestCase):
         A_DATA = b'A' * 1024 * 1024
         B_DATA = b'B' * 1024 * 1024
 
-        sslctx = openssl_ssl.Context(openssl_ssl.SSLv23_METHOD)
-        if hasattr(openssl_ssl, 'OP_NO_SSLV2'):
-            sslctx.set_options(openssl_ssl.OP_NO_SSLV2)
+        sslctx = openssl_ssl.Context(openssl_ssl.TLSv1_2_METHOD)
+        # if hasattr(openssl_ssl, 'OP_NO_SSLV2'):
+        #     sslctx.set_options(openssl_ssl.OP_NO_SSLV2)
+        # if hasattr(openssl_ssl, 'OP_NO_TLSv1_3'):
+        #     sslctx.set_options(openssl_ssl.OP_NO_TLSv1_3)
         sslctx.use_privatekey_file(self.ONLYKEY)
         sslctx.use_certificate_chain_file(self.ONLYCERT)
         client_sslctx = self._create_client_ssl_context()
@@ -2269,6 +2271,7 @@ class _TestSSL(tb.SSLTestCase):
                 except openssl_ssl.WantReadError:
                     pass
             self.assertEqual(data, A_DATA)
+            print("+++ %s" % conn.get_cipher_version())
             conn.renegotiate()
             if conn.renegotiate_pending():
                 conn.send(b'OK')
@@ -2304,6 +2307,7 @@ class _TestSSL(tb.SSLTestCase):
                 loop=self.loop,
                 **extras)
 
+            print(">>> %s" % writer.get_extra_info('sslcontext').protocol)
             writer.write(A_DATA)
             self.assertEqual(await reader.readexactly(2), b'OK')
 
@@ -2358,7 +2362,7 @@ class _TestSSL(tb.SSLTestCase):
         with self._silence_eof_received_warning():
             run(client_sock)
 
-    def _x_test_shutdown_timeout(self):
+    def test_shutdown_timeout(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest()
 
@@ -2386,7 +2390,7 @@ class _TestSSL(tb.SSLTestCase):
                 await reader.read()
             CNT += 1
 
-        async def _x_test_client(addr):
+        async def test_client(addr):
             fut = asyncio.Future(loop=self.loop)
 
             def prog(sock):
