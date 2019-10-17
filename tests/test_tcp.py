@@ -51,7 +51,7 @@ class MyBaseProto(asyncio.Protocol):
 
 
 class _TestTCP:
-    def test_create_server_1(self):
+    def _x_test_create_server_1(self):
         if self.is_asyncio_loop() and sys.version_info[:3] == (3, 5, 2):
             # See https://github.com/python/asyncio/pull/366 for details.
             raise unittest.SkipTest()
@@ -87,7 +87,7 @@ class _TestTCP:
 
             CNT += 1
 
-        async def test_client(addr):
+        async def _x_test_client(addr):
             sock = socket.socket()
             with sock:
                 sock.setblocking(False)
@@ -199,11 +199,11 @@ class _TestTCP:
         self.loop.run_until_complete(start_server_sock())
         self.assertEqual(CNT, TOTAL_CNT)
 
-    def test_create_server_2(self):
+    def _x_test_create_server_2(self):
         with self.assertRaisesRegex(ValueError, 'nor sock were specified'):
             self.loop.run_until_complete(self.loop.create_server(object))
 
-    def test_create_server_3(self):
+    def _x_test_create_server_3(self):
         ''' check ephemeral port can be used '''
 
         async def start_server_ephemeral_ports():
@@ -234,7 +234,7 @@ class _TestTCP:
 
         self.loop.run_until_complete(start_server_ephemeral_ports())
 
-    def test_create_server_4(self):
+    def _x_test_create_server_4(self):
         sock = socket.socket()
         sock.bind(('127.0.0.1', 0))
 
@@ -248,7 +248,7 @@ class _TestTCP:
                 self.loop.run_until_complete(
                     self.loop.create_server(object, *addr))
 
-    def test_create_server_5(self):
+    def _x_test_create_server_5(self):
         # Test that create_server sets the TCP_IPV6ONLY flag,
         # so it can bind to ipv4 and ipv6 addresses
         # simultaneously.
@@ -265,7 +265,7 @@ class _TestTCP:
 
         self.loop.run_until_complete(runner())
 
-    def test_create_server_6(self):
+    def _x_test_create_server_6(self):
         if not hasattr(socket, 'SO_REUSEPORT'):
             raise unittest.SkipTest(
                 'The system does not support SO_REUSEPORT')
@@ -296,7 +296,7 @@ class _TestTCP:
 
         self.loop.run_until_complete(runner())
 
-    def test_create_server_7(self):
+    def _x_test_create_server_7(self):
         # Test that create_server() stores a hard ref to the server object
         # somewhere in the loop.  In asyncio it so happens that
         # loop.sock_accept() has a reference to the server object so it
@@ -307,7 +307,7 @@ class _TestTCP:
                 self.tr = tr
                 self.tr.write(b'hello')
 
-        async def test():
+        async def _x_test():
             port = tb.find_free_port()
             srv = await self.loop.create_server(Proto, '127.0.0.1', port)
             wsrv = weakref.ref(srv)
@@ -340,7 +340,7 @@ class _TestTCP:
 
         self.loop.run_until_complete(test())
 
-    def test_create_server_8(self):
+    def _x_test_create_server_8(self):
         if self.implementation == 'asyncio' and not self.PY37:
             raise unittest.SkipTest()
 
@@ -350,7 +350,7 @@ class _TestTCP:
                 self.loop.create_server(
                     lambda: None, host='::', port=0, ssl_handshake_timeout=10))
 
-    def test_create_server_9(self):
+    def _x_test_create_server_9(self):
         if not self.has_start_serving():
             raise unittest.SkipTest()
 
@@ -378,7 +378,7 @@ class _TestTCP:
 
         self.loop.run_until_complete(start_server())
 
-    def test_create_server_10(self):
+    def _x_test_create_server_10(self):
         if not self.has_start_serving():
             raise unittest.SkipTest()
 
@@ -406,7 +406,7 @@ class _TestTCP:
 
         self.loop.run_until_complete(start_server())
 
-    def test_create_connection_open_con_addr(self):
+    def _x_test_create_connection_open_con_addr(self):
         async def client(addr):
             reader, writer = await asyncio.open_connection(
                 *addr,
@@ -432,7 +432,7 @@ class _TestTCP:
 
         self._test_create_connection_1(client)
 
-    def test_create_connection_open_con_sock(self):
+    def _x_test_create_connection_open_con_sock(self):
         async def client(addr):
             sock = socket.socket()
             sock.connect(addr)
@@ -492,7 +492,7 @@ class _TestTCP:
 
         run(client_wrapper)
 
-    def test_create_connection_2(self):
+    def _x_test_create_connection_2(self):
         sock = socket.socket()
         with sock:
             sock.bind(('127.0.0.1', 0))
@@ -509,7 +509,7 @@ class _TestTCP:
 
         self.loop.run_until_complete(runner())
 
-    def test_create_connection_3(self):
+    def _x_test_create_connection_3(self):
         CNT = 0
         TOTAL_CNT = 100
 
@@ -551,7 +551,7 @@ class _TestTCP:
 
         run(client)
 
-    def test_create_connection_4(self):
+    def _x_test_create_connection_4(self):
         sock = socket.socket()
         sock.close()
 
@@ -566,7 +566,7 @@ class _TestTCP:
 
         self.loop.run_until_complete(runner())
 
-    def test_create_connection_5(self):
+    def _x_test_create_connection_5(self):
         def server(sock):
             try:
                 data = sock.recv_all(4)
@@ -589,7 +589,7 @@ class _TestTCP:
                              backlog=1) as srv:
             self.loop.run_until_complete(client(srv.addr))
 
-    def test_create_connection_6(self):
+    def _x_test_create_connection_6(self):
         if self.implementation == 'asyncio' and not self.PY37:
             raise unittest.SkipTest()
 
@@ -599,7 +599,7 @@ class _TestTCP:
                 self.loop.create_connection(
                     lambda: None, host='::', port=0, ssl_handshake_timeout=10))
 
-    def test_transport_shutdown(self):
+    def _x_test_transport_shutdown(self):
         CNT = 0           # number of clients that were successful
         TOTAL_CNT = 100   # total number of clients that test will create
         TIMEOUT = 5.0     # timeout for this test
@@ -619,7 +619,7 @@ class _TestTCP:
 
             CNT += 1
 
-        async def test_client(addr):
+        async def _x_test_client(addr):
             reader, writer = await asyncio.open_connection(
                 *addr,
                 loop=self.loop)
@@ -659,7 +659,7 @@ class _TestTCP:
         self.loop.run_until_complete(start_server())
         self.assertEqual(CNT, TOTAL_CNT)
 
-    def test_tcp_handle_exception_in_connection_made(self):
+    def _x_test_tcp_handle_exception_in_connection_made(self):
         # Test that if connection_made raises an exception,
         # 'create_connection' still returns.
 
@@ -707,7 +707,7 @@ class _TestTCP:
 
 class Test_UV_TCP(_TestTCP, tb.UVTestCase):
 
-    def test_create_server_buffered_1(self):
+    def _x_test_create_server_buffered_1(self):
         SIZE = 123123
         eof = False
         done = False
@@ -735,7 +735,7 @@ class Test_UV_TCP(_TestTCP, tb.UVTestCase):
                 nonlocal done
                 done = exc
 
-        async def test():
+        async def _x_test():
             port = tb.find_free_port()
             srv = await self.loop.create_server(Proto, '127.0.0.1', port)
 
@@ -754,7 +754,7 @@ class Test_UV_TCP(_TestTCP, tb.UVTestCase):
         self.assertTrue(eof)
         self.assertIsNone(done)
 
-    def test_create_server_buffered_2(self):
+    def _x_test_create_server_buffered_2(self):
         class ProtoExc(asyncio.BaseProtocol):
             def __init__(self):
                 self._lost_exc = None
@@ -819,7 +819,7 @@ class Test_UV_TCP(_TestTCP, tb.UVTestCase):
             def eof_received(self):
                 pass
 
-        async def test(proto_factory, exc_type, exc_re):
+        async def _x_test(proto_factory, exc_type, exc_re):
             port = tb.find_free_port()
             proto = proto_factory()
             srv = await self.loop.create_server(
@@ -864,7 +864,7 @@ class Test_UV_TCP(_TestTCP, tb.UVTestCase):
         self.loop.run_until_complete(
             test(ProtoUpdatedError, RuntimeError, r'^oups$'))
 
-    def test_transport_get_extra_info(self):
+    def _x_test_transport_get_extra_info(self):
         # This tests is only for uvloop.  asyncio should pass it
         # too in Python 3.6.
 
@@ -883,7 +883,7 @@ class Test_UV_TCP(_TestTCP, tb.UVTestCase):
             # and finish the request.
             fut.set_result(None)
 
-        async def test_client(addr):
+        async def _x_test_client(addr):
             t, p = await self.loop.create_connection(
                 lambda: asyncio.Protocol(), *addr)
 
@@ -960,7 +960,7 @@ class Test_UV_TCP(_TestTCP, tb.UVTestCase):
 
         self.loop.run_until_complete(start_server())
 
-    def test_create_server_float_backlog(self):
+    def _x_test_create_server_float_backlog(self):
         # asyncio spits out a warning we cannot suppress
 
         async def runner(bl):
@@ -973,7 +973,7 @@ class Test_UV_TCP(_TestTCP, tb.UVTestCase):
                 with self.assertRaisesRegex(TypeError, 'integer'):
                     self.loop.run_until_complete(runner(bl))
 
-    def test_many_small_writes(self):
+    def _x_test_many_small_writes(self):
         N = 10000
         TOTAL = 0
 
@@ -1034,7 +1034,7 @@ class Test_UV_TCP(_TestTCP, tb.UVTestCase):
 
         self.loop.run_until_complete(run())
 
-    def test_tcp_handle_unclosed_gc(self):
+    def _x_test_tcp_handle_unclosed_gc(self):
         fut = self.loop.create_future()
 
         async def server(reader, writer):
@@ -1076,7 +1076,7 @@ class Test_UV_TCP(_TestTCP, tb.UVTestCase):
         # we need to disable this check:
         self.skip_unclosed_handles_check()
 
-    def test_tcp_handle_abort_in_connection_made(self):
+    def _x_test_tcp_handle_abort_in_connection_made(self):
         async def server(reader, writer):
             try:
                 await reader.read()
@@ -1110,7 +1110,7 @@ class Test_UV_TCP(_TestTCP, tb.UVTestCase):
         srv.close()
         self.loop.run_until_complete(srv.wait_closed())
 
-    def test_connect_accepted_socket_ssl_args(self):
+    def _x_test_connect_accepted_socket_ssl_args(self):
         if self.implementation == 'asyncio' and not self.PY37:
             raise unittest.SkipTest()
 
@@ -1121,7 +1121,7 @@ class Test_UV_TCP(_TestTCP, tb.UVTestCase):
                     self.loop.connect_accepted_socket(
                         (lambda: None), s, ssl_handshake_timeout=10.0))
 
-    def test_connect_accepted_socket(self, server_ssl=None, client_ssl=None):
+    def _x_test_connect_accepted_socket(self, server_ssl=None, client_ssl=None):
         loop = self.loop
 
         class MyProto(MyBaseProto):
@@ -1192,7 +1192,7 @@ class Test_UV_TCP(_TestTCP, tb.UVTestCase):
         self.loop.run_until_complete(asyncio.sleep(0.1, loop=self.loop))
 
     @unittest.skipUnless(hasattr(socket, 'AF_UNIX'), 'no Unix sockets')
-    def test_create_connection_wrong_sock(self):
+    def _x_test_create_connection_wrong_sock(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         with sock:
             coro = self.loop.create_connection(MyBaseProto, sock=sock)
@@ -1201,7 +1201,7 @@ class Test_UV_TCP(_TestTCP, tb.UVTestCase):
                 self.loop.run_until_complete(coro)
 
     @unittest.skipUnless(hasattr(socket, 'AF_UNIX'), 'no Unix sockets')
-    def test_create_server_wrong_sock(self):
+    def _x_test_create_server_wrong_sock(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         with sock:
             coro = self.loop.create_server(MyBaseProto, sock=sock)
@@ -1211,7 +1211,7 @@ class Test_UV_TCP(_TestTCP, tb.UVTestCase):
 
     @unittest.skipUnless(hasattr(socket, 'SOCK_NONBLOCK'),
                          'no socket.SOCK_NONBLOCK (linux only)')
-    def test_create_server_stream_bittype(self):
+    def _x_test_create_server_stream_bittype(self):
         sock = socket.socket(
             socket.AF_INET, socket.SOCK_STREAM | socket.SOCK_NONBLOCK)
         with sock:
@@ -1220,7 +1220,7 @@ class Test_UV_TCP(_TestTCP, tb.UVTestCase):
             srv.close()
             self.loop.run_until_complete(srv.wait_closed())
 
-    def test_flowcontrol_mixin_set_write_limits(self):
+    def _x_test_flowcontrol_mixin_set_write_limits(self):
         async def client(addr):
             paused = False
 
@@ -1273,7 +1273,7 @@ class _TestSSL(tb.SSLTestCase):
     PAYLOAD_SIZE = 1024 * 100
     TIMEOUT = 60
 
-    def test_create_server_ssl_1(self):
+    def _x_test_create_server_ssl_1(self):
         CNT = 0           # number of clients that were successful
         TOTAL_CNT = 25    # total number of clients that test will create
         TIMEOUT = 10.0    # timeout for this test
@@ -1302,7 +1302,7 @@ class _TestSSL(tb.SSLTestCase):
 
             CNT += 1
 
-        async def test_client(addr):
+        async def _x_test_client(addr):
             fut = asyncio.Future(loop=self.loop)
 
             def prog(sock):
@@ -1370,7 +1370,7 @@ class _TestSSL(tb.SSLTestCase):
         for client in clients:
             client.stop()
 
-    def test_create_connection_ssl_1(self):
+    def _x_test_create_connection_ssl_1(self):
         if self.implementation == 'asyncio':
             # Don't crash on asyncio errors
             self.loop.set_exception_handler(None)
@@ -1465,7 +1465,7 @@ class _TestSSL(tb.SSLTestCase):
         with self._silence_eof_received_warning():
             run(client_sock)
 
-    def test_create_connection_ssl_slow_handshake(self):
+    def _x_test_create_connection_ssl_slow_handshake(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest()
 
@@ -1500,7 +1500,7 @@ class _TestSSL(tb.SSLTestCase):
 
                 self.loop.run_until_complete(client(srv.addr))
 
-    def test_create_connection_ssl_failed_certificate(self):
+    def _x_test_create_connection_ssl_failed_certificate(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest()
 
@@ -1539,7 +1539,7 @@ class _TestSSL(tb.SSLTestCase):
             with self.assertRaises(exc_type):
                 self.loop.run_until_complete(client(srv.addr))
 
-    def test_start_tls_wrong_args(self):
+    def _x_test_start_tls_wrong_args(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest()
 
@@ -1554,7 +1554,7 @@ class _TestSSL(tb.SSLTestCase):
 
         self.loop.run_until_complete(main())
 
-    def test_ssl_handshake_timeout(self):
+    def _x_test_ssl_handshake_timeout(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest()
 
@@ -1601,7 +1601,7 @@ class _TestSSL(tb.SSLTestCase):
         # exception or log an error, even if the handshake failed
         self.assertEqual(messages, [])
 
-    def test_ssl_handshake_connection_lost(self):
+    def _x_test_ssl_handshake_connection_lost(self):
         # #246: make sure that no connection_lost() is called before
         # connection_made() is called first
 
@@ -1650,7 +1650,7 @@ class _TestSSL(tb.SSLTestCase):
         elif connection_made_called:
             self.fail("unexpected call to connection_made()")
 
-    def test_ssl_connect_accepted_socket(self):
+    def _x_test_ssl_connect_accepted_socket(self):
         server_context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
         server_context.load_cert_chain(self.ONLYCERT, self.ONLYKEY)
         if hasattr(server_context, 'check_hostname'):
@@ -1665,7 +1665,7 @@ class _TestSSL(tb.SSLTestCase):
         Test_UV_TCP.test_connect_accepted_socket(
             self, server_context, client_context)
 
-    def test_start_tls_client_corrupted_ssl(self):
+    def _x_test_start_tls_client_corrupted_ssl(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest()
 
@@ -1711,7 +1711,7 @@ class _TestSSL(tb.SSLTestCase):
 
         self.assertEqual(res, 'OK')
 
-    def test_start_tls_client_reg_proto_1(self):
+    def _x_test_start_tls_client_reg_proto_1(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest()
 
@@ -1775,7 +1775,7 @@ class _TestSSL(tb.SSLTestCase):
             self.loop.run_until_complete(
                 asyncio.wait_for(client(srv.addr), loop=self.loop, timeout=10))
 
-    def test_create_connection_memory_leak(self):
+    def _x_test_create_connection_memory_leak(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest()
 
@@ -1841,7 +1841,7 @@ class _TestSSL(tb.SSLTestCase):
         client_context = weakref.ref(client_context)
         self.assertIsNone(client_context())
 
-    def test_start_tls_client_buf_proto_1(self):
+    def _x_test_start_tls_client_buf_proto_1(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest()
 
@@ -1940,7 +1940,7 @@ class _TestSSL(tb.SSLTestCase):
                 asyncio.wait_for(client(srv.addr),
                                  loop=self.loop, timeout=self.TIMEOUT))
 
-    def test_start_tls_slow_client_cancel(self):
+    def _x_test_start_tls_slow_client_cancel(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest()
 
@@ -2004,7 +2004,7 @@ class _TestSSL(tb.SSLTestCase):
             self.loop.run_until_complete(
                 asyncio.wait_for(client(srv.addr), loop=self.loop, timeout=10))
 
-    def test_start_tls_server_1(self):
+    def _x_test_start_tls_server_1(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest()
 
@@ -2086,7 +2086,7 @@ class _TestSSL(tb.SSLTestCase):
 
         self.loop.run_until_complete(run_main())
 
-    def test_create_server_ssl_over_ssl(self):
+    def _x_test_create_server_ssl_over_ssl(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest('asyncio does not support SSL over SSL')
 
@@ -2141,7 +2141,7 @@ class _TestSSL(tb.SSLTestCase):
             protocol = ServerProtocol(reader, handle_client, loop=self.loop)
             return protocol
 
-        async def test_client(addr):
+        async def _x_test_client(addr):
             fut = asyncio.Future(loop=self.loop)
 
             def prog(sock):
@@ -2358,7 +2358,7 @@ class _TestSSL(tb.SSLTestCase):
         with self._silence_eof_received_warning():
             run(client_sock)
 
-    def test_shutdown_timeout(self):
+    def _x_test_shutdown_timeout(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest()
 
@@ -2386,7 +2386,7 @@ class _TestSSL(tb.SSLTestCase):
                 await reader.read()
             CNT += 1
 
-        async def test_client(addr):
+        async def _x_test_client(addr):
             fut = asyncio.Future(loop=self.loop)
 
             def prog(sock):
@@ -2459,7 +2459,7 @@ class _TestSSL(tb.SSLTestCase):
         for client in clients:
             client.stop()
 
-    def test_shutdown_cleanly(self):
+    def _x_test_shutdown_cleanly(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest()
 
@@ -2525,7 +2525,7 @@ class _TestSSL(tb.SSLTestCase):
         with self._silence_eof_received_warning():
             run(client)
 
-    def test_write_to_closed_transport(self):
+    def _x_test_write_to_closed_transport(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest()
 
@@ -2597,7 +2597,7 @@ class _TestSSL(tb.SSLTestCase):
             with self.tcp_server(run(unwrap_server)) as srv:
                 self.loop.run_until_complete(client(srv.addr))
 
-    def test_flush_before_shutdown(self):
+    def _x_test_flush_before_shutdown(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest()
 
@@ -2691,7 +2691,7 @@ class _TestSSL(tb.SSLTestCase):
         with self.tcp_server(run(openssl_server)) as srv:
             self.loop.run_until_complete(client(srv.addr))
 
-    def test_remote_shutdown_receives_trailing_data(self):
+    def _x_test_remote_shutdown_receives_trailing_data(self):
         if self.implementation == 'asyncio':
             raise unittest.SkipTest()
 
@@ -2813,12 +2813,12 @@ class _TestSSL(tb.SSLTestCase):
         with self.tcp_server(run(eof_server)) as srv:
             self.loop.run_until_complete(client(srv.addr))
 
-    def test_connect_timeout_warning(self):
+    def _x_test_connect_timeout_warning(self):
         s = socket.socket(socket.AF_INET)
         s.bind(('127.0.0.1', 0))
         addr = s.getsockname()
 
-        async def test():
+        async def _x_test():
             try:
                 await asyncio.wait_for(
                     self.loop.create_connection(asyncio.Protocol,
@@ -2841,7 +2841,7 @@ class _TestSSL(tb.SSLTestCase):
             else:
                 self.fail('Unexpected ResourceWarning: {}'.format(cm.warning))
 
-    def test_handshake_timeout_handler_leak(self):
+    def _x_test_handshake_timeout_handler_leak(self):
         if self.implementation == 'asyncio':
             # Okay this turns out to be an issue for asyncio.sslproto too
             raise unittest.SkipTest()
@@ -2851,7 +2851,7 @@ class _TestSSL(tb.SSLTestCase):
         s.listen(1)
         addr = s.getsockname()
 
-        async def test(ctx):
+        async def _x_test(ctx):
             try:
                 await asyncio.wait_for(
                     self.loop.create_connection(asyncio.Protocol, *addr,
@@ -2870,7 +2870,7 @@ class _TestSSL(tb.SSLTestCase):
         # SSLProtocol should be DECREF to 0
         self.assertIsNone(ctx())
 
-    def test_shutdown_timeout_handler_leak(self):
+    def _x_test_shutdown_timeout_handler_leak(self):
         loop = self.loop
 
         def server(sock):
