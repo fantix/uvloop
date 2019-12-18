@@ -1,6 +1,7 @@
 import asyncio
 import decimal
 import random
+import socket
 import sys
 import unittest
 import weakref
@@ -9,6 +10,17 @@ from uvloop import _testbase as tb
 
 
 PY37 = sys.version_info >= (3, 7, 0)
+
+
+class _Protocol(asyncio.Protocol):
+    def __init__(self, *, loop=None):
+        self.done = asyncio.Future(loop=loop)
+
+    def connection_lost(self, exc):
+        if exc is None:
+            self.done.set_result(None)
+        else:
+            self.done.set_exception(exc)
 
 
 class _ContextBaseTests:
@@ -138,6 +150,42 @@ class _ContextBaseTests:
 
         del tracked
         self.assertIsNone(ref())
+
+    @unittest.skipUnless(PY37, 'requires Python 3.7')
+    def test_create_server_protocol_factory_context(self):
+        import contextvars
+        cvar = contextvars.ContextVar('cvar', default='outer')
+        factory_called_future = self.loop.create_future()
+        proto = _Protocol(loop=self.loop)
+
+        def factory():
+            try:
+                self.assertEqual(cvar.get(), 'inner')
+            except Exception as e:
+                factory_called_future.set_exception(e)
+            else:
+                factory_called_future.set_result(None)
+
+            return proto
+
+        async def test():
+            cvar.set('inner')
+            port = tb.find_free_port()
+            srv = await self.loop.create_server(factory, '127.0.0.1', port)
+
+            s = socket.socket(socket.AF_INET)
+            with s:
+                s.setblocking(False)
+                await self.loop.sock_connect(s, ('127.0.0.1', port))
+
+            try:
+                await factory_called_future
+            finally:
+                srv.close()
+                await proto.done
+                await srv.wait_closed()
+
+        self.loop.run_until_complete(test())
 
 
 class Test_UV_Context(_ContextBaseTests, tb.UVTestCase):
