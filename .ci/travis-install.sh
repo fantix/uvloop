@@ -3,7 +3,8 @@
 set -e -x
 
 if [ "${TRAVIS_OS_NAME}" == "osx" ]; then
-    brew update >/dev/null
+    brew untap homebrew/versions
+    brew update
     brew upgrade pyenv
     eval "$(pyenv init -)"
 
