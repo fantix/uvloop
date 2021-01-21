@@ -26,6 +26,7 @@ cdef class UVBaseTransport(UVSocketHandle):
             new_MethodHandle(self._loop,
                              "UVTransport._call_connection_made",
                              <method_t>self._call_connection_made,
+                             None,
                              self))
 
     cdef inline _schedule_call_connection_lost(self, exc):
@@ -33,6 +34,7 @@ cdef class UVBaseTransport(UVSocketHandle):
             new_MethodHandle1(self._loop,
                               "UVTransport._call_connection_lost",
                               <method1_t>self._call_connection_lost,
+                              None,
                               self, exc))
 
     cdef _fatal_error(self, exc, throw, reason=None):
