@@ -157,7 +157,7 @@ cdef class Loop:
         self.handler_idle = UVIdle.new(
             self,
             new_MethodHandle(
-                self, "loop._on_idle", <method_t>self._on_idle, self))
+                self, "loop._on_idle", <method_t>self._on_idle, None, self))
 
         # Needed to call `UVStream._exec_write` for writes scheduled
         # during `Protocol.data_received`.
@@ -165,7 +165,7 @@ cdef class Loop:
             self,
             new_MethodHandle(
                 self, "loop._exec_queued_writes",
-                <method_t>self._exec_queued_writes, self))
+                <method_t>self._exec_queued_writes, None, self))
 
         self._signals = set()
         self._ssock = self._csock = None
@@ -288,6 +288,7 @@ cdef class Loop:
                 self,
                 "Loop._read_from_self",
                 <method_t>self._read_from_self,
+                None,
                 self))
 
         self._listening_signals = True
@@ -1009,6 +1010,7 @@ cdef class Loop:
                 self,
                 "Loop._sock_sendall",
                 <method3_t>self._sock_sendall,
+                None,
                 self,
                 fut, sock, data)
 
@@ -1049,6 +1051,7 @@ cdef class Loop:
             self,
             "Loop._sock_connect",
             <method3_t>self._sock_connect_cb,
+            None,
             self,
             fut, sock, address)
 
@@ -1311,6 +1314,7 @@ cdef class Loop:
                 self,
                 "Loop._stop",
                 <method1_t>self._stop,
+                None,
                 self,
                 None))
 
@@ -2397,6 +2401,7 @@ cdef class Loop:
             self,
             "Loop._sock_recv",
             <method3_t>self._sock_recv,
+            None,
             self,
             fut, sock, n)
 
@@ -2423,6 +2428,7 @@ cdef class Loop:
             self,
             "Loop._sock_recv_into",
             <method3_t>self._sock_recv_into,
+            None,
             self,
             fut, sock, buf)
 
@@ -2474,6 +2480,7 @@ cdef class Loop:
                 self,
                 "Loop._sock_sendall",
                 <method3_t>self._sock_sendall,
+                None,
                 self,
                 fut, sock, data)
 
@@ -2504,6 +2511,7 @@ cdef class Loop:
             self,
             "Loop._sock_accept",
             <method2_t>self._sock_accept,
+            None,
             self,
             fut, sock)
 
