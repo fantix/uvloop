@@ -24,7 +24,7 @@ cdef class UVStream(UVBaseTransport):
     cdef inline _exec_write(self)
 
     cdef inline _shutdown(self)
-    cdef inline _accept(self, UVStream server)
+    cdef inline _accept(self, UVStream server, object context)
 
     cdef inline _close_on_read_error(self)
 
@@ -36,7 +36,7 @@ cdef class UVStream(UVBaseTransport):
 
     cdef _close(self)
 
-    cdef inline _on_accept(self)
+    cdef inline _on_accept(self, object context)
     cdef inline _on_eof(self)
     cdef inline _on_write(self)
     cdef inline _on_connect(self, object exc)

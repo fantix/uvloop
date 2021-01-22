@@ -24,7 +24,7 @@ cdef class UVBaseTransport(UVSocketHandle):
     cdef inline _maybe_pause_protocol(self)
     cdef inline _maybe_resume_protocol(self)
 
-    cdef inline _schedule_call_connection_made(self)
+    cdef inline _schedule_call_connection_made(self, object context)
     cdef inline _schedule_call_connection_lost(self, exc)
 
     cdef _wakeup_waiter(self)
@@ -41,7 +41,7 @@ cdef class UVBaseTransport(UVSocketHandle):
     cdef _set_protocol(self, object protocol)
     cdef _clear_protocol(self)
 
-    cdef inline _init_protocol(self)
+    cdef inline _init_protocol(self, object context)
     cdef inline _add_extra_info(self, str name, object obj)
 
     # === overloads ===

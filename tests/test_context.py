@@ -13,8 +13,13 @@ PY37 = sys.version_info >= (3, 7, 0)
 
 
 class _Protocol(asyncio.Protocol):
-    def __init__(self, *, loop=None):
+    def __init__(self, cvar, *, loop=None):
+        self.cvar = cvar
+        self.connection_made_fut = asyncio.Future(loop=loop)
         self.done = asyncio.Future(loop=loop)
+
+    def connection_made(self, transport):
+        self.connection_made_fut.set_result(self.cvar.get())
 
     def connection_lost(self, exc):
         if exc is None:
@@ -156,7 +161,7 @@ class _ContextBaseTests:
         import contextvars
         cvar = contextvars.ContextVar('cvar', default='outer')
         factory_called_future = self.loop.create_future()
-        proto = _Protocol(loop=self.loop)
+        proto = _Protocol(cvar, loop=self.loop)
 
         def factory():
             try:
@@ -180,6 +185,34 @@ class _ContextBaseTests:
 
             try:
                 await factory_called_future
+            finally:
+                srv.close()
+                await proto.done
+                await srv.wait_closed()
+
+        self.loop.run_until_complete(test())
+
+    @unittest.skipUnless(PY37, 'requires Python 3.7')
+    def test_create_server_connection_made(self):
+        import contextvars
+        cvar = contextvars.ContextVar('cvar', default='outer')
+        proto = _Protocol(cvar, loop=self.loop)
+
+        async def test():
+            cvar.set('inner')
+            port = tb.find_free_port()
+            srv = await self.loop.create_server(
+                lambda: proto, '127.0.0.1', port,
+            )
+
+            s = socket.socket(socket.AF_INET)
+            with s:
+                s.setblocking(False)
+                await self.loop.sock_connect(s, ('127.0.0.1', port))
+
+            try:
+                inner = await proto.connection_made_fut
+                self.assertEqual(inner, "inner")
             finally:
                 srv.close()
                 await proto.done

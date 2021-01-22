@@ -2019,7 +2019,7 @@ cdef class Loop:
             try:
                 # libuv will make socket non-blocking
                 tr._open(sock.fileno())
-                tr._init_protocol()
+                tr._init_protocol(None)  # TODO: context
                 await waiter
             except (KeyboardInterrupt, SystemExit):
                 raise
@@ -2265,7 +2265,7 @@ cdef class Loop:
             tr = UnixTransport.new(self, protocol, None, waiter)
             try:
                 tr._open(sock.fileno())
-                tr._init_protocol()
+                tr._init_protocol(None)  # TODO: context
                 await waiter
             except (KeyboardInterrupt, SystemExit):
                 raise
@@ -2650,7 +2650,7 @@ cdef class Loop:
                 'invalid socket family, expected AF_UNIX, AF_INET or AF_INET6')
 
         transport._open(sock.fileno())
-        transport._init_protocol()
+        transport._init_protocol(None)  # TODO: context
         transport._attach_fileobj(sock)
 
         if ssl:
@@ -2798,7 +2798,7 @@ cdef class Loop:
         transp._add_extra_info('pipe', pipe)
         try:
             transp._open(pipe.fileno())
-            transp._init_protocol()
+            transp._init_protocol(None)  # TODO: context
             await waiter
         except (KeyboardInterrupt, SystemExit):
             raise
@@ -2825,7 +2825,7 @@ cdef class Loop:
         transp._add_extra_info('pipe', pipe)
         try:
             transp._open(pipe.fileno())
-            transp._init_protocol()
+            transp._init_protocol(None)  # TODO: context
             await waiter
         except (KeyboardInterrupt, SystemExit):
             raise
@@ -3099,7 +3099,7 @@ cdef class Loop:
         assert udp is not None
         udp._set_protocol(protocol)
         udp._set_waiter(waiter)
-        udp._init_protocol()
+        udp._init_protocol(None)  # TODO: context
 
         await waiter
         return udp, protocol

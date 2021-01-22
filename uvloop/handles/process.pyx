@@ -453,7 +453,7 @@ cdef class UVProcessTransport(UVProcess):
                     self._loop, self.stdin_proto, None, waiter)
                 self._init_futs.append(waiter)
                 self._stdin._open(w)
-                self._stdin._init_protocol()
+                self._stdin._init_protocol(None)  # TODO: context
             elif _stdin == subprocess_DEVNULL:
                 io[0] = self._file_devnull()
             elif _stdout == subprocess_STDOUT:
@@ -481,7 +481,7 @@ cdef class UVProcessTransport(UVProcess):
                     self._loop, self.stdout_proto, None, waiter)
                 self._init_futs.append(waiter)
                 self._stdout._open(r)
-                self._stdout._init_protocol()
+                self._stdout._init_protocol(None)  # TODO: context
             elif _stdout == subprocess_DEVNULL:
                 io[1] = self._file_devnull()
             elif _stdout == subprocess_STDOUT:
@@ -503,7 +503,7 @@ cdef class UVProcessTransport(UVProcess):
                     self._loop, self.stderr_proto, None, waiter)
                 self._init_futs.append(waiter)
                 self._stderr._open(r)
-                self._stderr._init_protocol()
+                self._stderr._init_protocol(None)  # TODO: context
             elif _stderr == subprocess_STDOUT:
                 if io[1] is None:
                     # shouldn't ever happen

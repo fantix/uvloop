@@ -263,7 +263,7 @@ cdef class UVStream(UVBaseTransport):
             self._fatal_error(exc, True)
             return
 
-    cdef inline _accept(self, UVStream server):
+    cdef inline _accept(self, UVStream server, object context):
         cdef int err
         self._ensure_alive()
 
@@ -274,7 +274,7 @@ cdef class UVStream(UVBaseTransport):
             self._fatal_error(exc, True)
             return
 
-        self._on_accept()
+        self._on_accept(context)
 
     cdef inline _close_on_read_error(self):
         self.__read_error_close = 1
@@ -599,9 +599,9 @@ cdef class UVStream(UVBaseTransport):
         finally:
             UVSocketHandle._close(<UVHandle>self)
 
-    cdef inline _on_accept(self):
+    cdef inline _on_accept(self, object context):
         # Ultimately called by __uv_stream_on_listen.
-        self._init_protocol()
+        self._init_protocol(context)
 
     cdef inline _on_eof(self):
         # Any exception raised here will be caught in
@@ -646,7 +646,7 @@ cdef class UVStream(UVBaseTransport):
         # Called from __tcp_connect_callback (tcp.pyx) and
         # __pipe_connect_callback (pipe.pyx).
         if exc is None:
-            self._init_protocol()
+            self._init_protocol(None)  # TODO: context
         else:
             if self._waiter is None:
                 self._fatal_error(exc, False, "connect failed")

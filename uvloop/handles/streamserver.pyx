@@ -92,7 +92,7 @@ cdef class UVStreamServer(UVSocketHandle):
             waiter.add_done_callback(
                 ft_partial(self.__on_ssl_connected, client))
 
-        client._accept(<UVStream>self)
+        client._accept(<UVStream>self, self.listen_context)
 
     cdef _fatal_error(self, exc, throw, reason=None):
         # Overload UVHandle._fatal_error
