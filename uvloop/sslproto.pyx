@@ -45,7 +45,8 @@ cdef class _SSLProtocolTransport:
         with None as its argument.
         """
         self._closed = True
-        self._ssl_protocol._start_shutdown()
+        self._ssl_protocol.context.run(
+            lambda: self._ssl_protocol._start_shutdown())
 
     def __dealloc__(self):
         if not self._closed:
@@ -210,11 +211,13 @@ cdef class SSLProtocol:
         self._ssl_buffer = NULL
         self._ssl_buffer_len = 0
 
-    def __init__(self, loop, app_protocol, sslcontext, waiter,
+    def __init__(self, loop, app_protocol, sslcontext, waiter, context,
                  server_side=False, server_hostname=None,
                  call_connection_made=True,
                  ssl_handshake_timeout=None,
                  ssl_shutdown_timeout=None):
+        self.context = context
+
         if ssl_handshake_timeout is None:
             ssl_handshake_timeout = SSL_HANDSHAKE_TIMEOUT
         elif ssl_handshake_timeout <= 0:
@@ -341,7 +344,8 @@ cdef class SSLProtocol:
             if self._app_state == STATE_CON_MADE or \
                     self._app_state == STATE_EOF:
                 self._app_state = STATE_CON_LOST
-                self._loop.call_soon(self._app_protocol.connection_lost, exc)
+                self._loop.call_soon(self._app_protocol.connection_lost, exc,
+                                     context=self.context)
         self._set_state(UNWRAPPED)
         self._transport = None
         self._app_transport = None
@@ -689,7 +693,8 @@ cdef class SSLProtocol:
                     else:
                         break
                 else:
-                    self._loop.call_soon(lambda: self._do_read())
+                    self._loop.call_soon(lambda: self._do_read(),
+                                         context=self.context)
         except ssl_SSLAgainErrors as exc:
             pass
         finally:
@@ -802,7 +807,7 @@ cdef class SSLProtocol:
                     self._do_flush()
                 elif self._state == SHUTDOWN:
                     self._do_shutdown()
-            self._loop.call_soon(resume)
+            self._loop.call_soon(resume, context=self.context)
 
     # Flow control for reads from SSL socket
 

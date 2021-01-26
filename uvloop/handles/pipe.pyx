@@ -73,8 +73,10 @@ cdef class UnixServer(UVStreamServer):
 
         self._mark_as_open()
 
-    cdef UVStream _make_new_transport(self, object protocol, object waiter):
+    cdef UVStream _make_new_transport(self, object protocol, object waiter,
+                                      object context):
         cdef UnixTransport tr
+        # TODO: context
         tr = UnixTransport.new(self._loop, protocol, self._server, waiter)
         return <UVStream>tr
 
@@ -88,7 +90,8 @@ cdef class UnixTransport(UVStream):
 
         cdef UnixTransport handle
         handle = UnixTransport.__new__(UnixTransport)
-        handle._init(loop, protocol, server, waiter)
+        # TODO: context
+        handle._init(loop, protocol, server, waiter, None)
         __pipe_init_uv_handle(<UVStream>handle, loop)
         return handle
 
@@ -112,7 +115,8 @@ cdef class ReadUnixTransport(UVStream):
                                object waiter):
         cdef ReadUnixTransport handle
         handle = ReadUnixTransport.__new__(ReadUnixTransport)
-        handle._init(loop, protocol, server, waiter)
+        # TODO: context
+        handle._init(loop, protocol, server, waiter, None)
         __pipe_init_uv_handle(<UVStream>handle, loop)
         return handle
 
@@ -162,7 +166,8 @@ cdef class WriteUnixTransport(UVStream):
         # close the transport.
         handle._close_on_read_error()
 
-        handle._init(loop, protocol, server, waiter)
+        # TODO: context
+        handle._init(loop, protocol, server, waiter, None)
         __pipe_init_uv_handle(<UVStream>handle, loop)
         return handle
 

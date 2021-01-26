@@ -34,6 +34,7 @@ cdef class SSLProtocol:
         bint _server_side
         str _server_hostname
         object _sslcontext
+        object context
 
         object _extra
 

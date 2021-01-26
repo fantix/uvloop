@@ -1542,7 +1542,7 @@ cdef class Loop:
 
         waiter = self._new_future()
         ssl_protocol = SSLProtocol(
-            self, protocol, sslcontext, waiter,
+            self, protocol, sslcontext, waiter, Context_CopyCurrent(),
             server_side, server_hostname,
             ssl_handshake_timeout=ssl_handshake_timeout,
             ssl_shutdown_timeout=ssl_shutdown_timeout,
@@ -1840,7 +1840,7 @@ cdef class Loop:
             sslcontext = None if isinstance(ssl, bool) else ssl
             protocol = SSLProtocol(
                 self, app_protocol, sslcontext, ssl_waiter,
-                False, server_hostname,
+                Context_CopyCurrent(), False, server_hostname,
                 ssl_handshake_timeout=ssl_handshake_timeout,
                 ssl_shutdown_timeout=ssl_shutdown_timeout)
         else:
@@ -1921,7 +1921,8 @@ cdef class Loop:
                 tr = None
                 try:
                     waiter = self._new_future()
-                    tr = TCPTransport.new(self, protocol, None, waiter)
+                    tr = TCPTransport.new(self, protocol, None, waiter,
+                                          Context_CopyCurrent())
 
                     if lai is not NULL:
                         lai_iter = lai
@@ -1981,7 +1982,8 @@ cdef class Loop:
             sock.setblocking(False)
 
             waiter = self._new_future()
-            tr = TCPTransport.new(self, protocol, None, waiter)
+            tr = TCPTransport.new(self, protocol, None, waiter,
+                                  Context_CopyCurrent())
             try:
                 # libuv will make socket non-blocking
                 tr._open(sock.fileno())
@@ -2164,8 +2166,9 @@ cdef class Loop:
 
             ssl_waiter = self._new_future()
             sslcontext = None if isinstance(ssl, bool) else ssl
+            # TODO: context
             protocol = SSLProtocol(
-                self, app_protocol, sslcontext, ssl_waiter,
+                self, app_protocol, sslcontext, ssl_waiter, None,
                 False, server_hostname,
                 ssl_handshake_timeout=ssl_handshake_timeout,
                 ssl_shutdown_timeout=ssl_shutdown_timeout)
@@ -2190,6 +2193,7 @@ cdef class Loop:
                 path = PyUnicode_EncodeFSDefault(path)
 
             waiter = self._new_future()
+            # TODO: context
             tr = UnixTransport.new(self, protocol, None, waiter)
             tr.connect(path)
             try:
@@ -2214,6 +2218,7 @@ cdef class Loop:
             sock.setblocking(False)
 
             waiter = self._new_future()
+            # TODO: context
             tr = UnixTransport.new(self, protocol, None, waiter)
             try:
                 tr._open(sock.fileno())
@@ -2582,8 +2587,9 @@ cdef class Loop:
             protocol = app_protocol
             transport_waiter = waiter
         else:
+            # TODO: context
             protocol = SSLProtocol(
-                self, app_protocol, ssl, waiter,
+                self, app_protocol, ssl, waiter, None,
                 server_side=True,
                 server_hostname=None,
                 ssl_handshake_timeout=ssl_handshake_timeout,
@@ -2591,11 +2597,13 @@ cdef class Loop:
             transport_waiter = None
 
         if sock.family == uv.AF_UNIX:
+            # TODO: context
             transport = <UVStream>UnixTransport.new(
                 self, protocol, None, transport_waiter)
         elif sock.family in (uv.AF_INET, uv.AF_INET6):
+            # TODO: test context
             transport = <UVStream>TCPTransport.new(
-                self, protocol, None, transport_waiter)
+                self, protocol, None, transport_waiter, Context_CopyCurrent())
 
         if transport is None:
             raise ValueError(
@@ -2746,6 +2754,7 @@ cdef class Loop:
 
         waiter = self._new_future()
         proto = proto_factory()
+        # TODO: context
         transp = ReadUnixTransport.new(self, proto, None, waiter)
         transp._add_extra_info('pipe', pipe)
         try:
