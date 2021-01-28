@@ -17,7 +17,7 @@ cdef class _SSLProtocolTransport:
     # TODO:
     # _sendfile_compatible = constants._SendfileMode.FALLBACK
 
-    def __cinit__(self, loop, ssl_protocol):
+    def __cinit__(self, Loop loop, ssl_protocol):
         self._loop = loop
         # SSLProtocol instance
         self._ssl_protocol = ssl_protocol
@@ -402,10 +402,9 @@ cdef class SSLProtocol:
 
             elif self._state == WRAPPED:
                 self._set_state(FLUSHING)
-                if self._app_reading_paused:
-                    return True
-                else:
-                    self._do_flush()
+                self._do_write()
+                self._set_state(SHUTDOWN)
+                self._do_shutdown()
 
             elif self._state == FLUSHING:
                 self._do_write()
@@ -505,7 +504,7 @@ cdef class SSLProtocol:
     cdef _on_handshake_complete(self, handshake_exc):
         if self._handshake_timeout_handle is not None:
             self._handshake_timeout_handle.cancel()
-            self._shutdown_timeout_handle = None
+            self._handshake_timeout_handle = None
 
         sslobj = self._sslobj
         try:
@@ -562,9 +561,30 @@ cdef class SSLProtocol:
                 aio_TimeoutError('SSL shutdown timed out'))
 
     cdef _do_flush(self):
-        self._do_read()
-        self._set_state(SHUTDOWN)
-        self._do_shutdown()
+        cdef:
+            bint close_notify = False
+
+        try:
+            try:
+                while True:
+                    if not self._sslobj_read(SSL_READ_MAX_SIZE):
+                        close_notify = True
+                        break
+            except ssl_SSLAgainErrors as exc:
+                pass
+            if close_notify:
+                self._call_eof_received()
+            if self._write_backlog:
+                self._do_write()
+            else:
+                self._process_outgoing()
+            self._control_ssl_reading()
+        except Exception as ex:
+            self._fatal_error(ex, 'Fatal error on SSL protocol')
+        else:
+            if not self._get_write_buffer_size():
+                self._set_state(SHUTDOWN)
+                self._do_shutdown()
 
     cdef _do_shutdown(self):
         try:
@@ -597,7 +617,7 @@ cdef class SSLProtocol:
     # Outgoing flow
 
     cdef _write_appdata(self, list_of_data):
-        if self._state in (FLUSHING, SHUTDOWN, UNWRAPPED):
+        if self._state in (SHUTDOWN, UNWRAPPED):
             if self._conn_lost >= LOG_THRESHOLD_FOR_CONNLOST_WRITES:
                 aio_logger.warning('SSL connection is closed')
             self._conn_lost += 1
@@ -643,7 +663,7 @@ cdef class SSLProtocol:
     # Incoming flow
 
     cdef _do_read(self):
-        if self._state != WRAPPED and self._state != FLUSHING:
+        if self._state != WRAPPED:
             return
         try:
             if not self._app_reading_paused:
@@ -689,7 +709,11 @@ cdef class SSLProtocol:
                     else:
                         break
                 else:
-                    self._loop.call_soon(lambda: self._do_read())
+                    self._loop._call_soon_handle(
+                        new_MethodHandle(self._loop,
+                                         "SSLProtocol._do_read",
+                                         <method_t>self._do_read,
+                                         self))
         except ssl_SSLAgainErrors as exc:
             pass
         finally:
@@ -734,17 +758,18 @@ cdef class SSLProtocol:
             self._start_shutdown()
 
     cdef _call_eof_received(self):
-        try:
-            if self._app_state == STATE_CON_MADE:
-                self._app_state = STATE_EOF
+        if self._app_state == STATE_CON_MADE:
+            self._app_state = STATE_EOF
+            try:
                 keep_open = self._app_protocol.eof_received()
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except BaseException as ex:
+                self._fatal_error(ex, 'Error calling eof_received()')
+            else:
                 if keep_open:
                     aio_logger.warning('returning true from eof_received() '
                                        'has no effect when using ssl')
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except BaseException as ex:
-            self._fatal_error(ex, 'Error calling eof_received()')
 
     # Flow control for writes from APP socket
 
@@ -794,15 +819,11 @@ cdef class SSLProtocol:
     cdef _resume_reading(self):
         if self._app_reading_paused:
             self._app_reading_paused = False
-
-            def resume():
-                if self._state == WRAPPED:
-                    self._do_read()
-                elif self._state == FLUSHING:
-                    self._do_flush()
-                elif self._state == SHUTDOWN:
-                    self._do_shutdown()
-            self._loop.call_soon(resume)
+            self._loop._call_soon_handle(
+                new_MethodHandle(self._loop,
+                                 "SSLProtocol._do_read",
+                                 <method_t>self._do_read,
+                                 self))
 
     # Flow control for reads from SSL socket
 

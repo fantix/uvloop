@@ -2875,7 +2875,87 @@ class _TestSSL(tb.SSLTestCase):
             tr.resume_reading()
             await pr.fut
             tr.close()
-            assert extra == b'extra bytes'
+            # extra data received after transport.close() is ignored
+            self.assertIsNone(extra)
+
+        with self.tcp_server(server) as srv:
+            loop.run_until_complete(client(srv.addr))
+
+    def test_shutdown_while_pause_reading(self):
+        loop = self.loop
+        conn_made = loop.create_future()
+        eof_recvd = loop.create_future()
+        conn_lost = loop.create_future()
+        data_recv = False
+
+        def server(sock):
+            sslctx = self._create_server_ssl_context(self.ONLYCERT,
+                                                     self.ONLYKEY)
+            incoming = ssl.MemoryBIO()
+            outgoing = ssl.MemoryBIO()
+            sslobj = sslctx.wrap_bio(incoming, outgoing, server_side=True)
+
+            while True:
+                try:
+                    sslobj.do_handshake()
+                except ssl.SSLWantReadError:
+                    if outgoing.pending:
+                        sock.send(outgoing.read())
+                    incoming.write(sock.recv(16384))
+                else:
+                    if outgoing.pending:
+                        sock.send(outgoing.read())
+                    break
+
+            while True:
+                try:
+                    self.assertEqual(sslobj.read(), b'')  # close_notify
+                    break
+                except ssl.SSLWantReadError:
+                    incoming.write(sock.recv(16384))
+
+            while True:
+                try:
+                    sslobj.unwrap()
+                except ssl.SSLWantReadError:
+                    if outgoing.pending:
+                        sock.send(outgoing.read())
+                    # incoming.write(sock.recv(16384))
+                else:
+                    if outgoing.pending:
+                        sock.send(outgoing.read())
+                    break
+
+            self.assertEqual(sock.recv(16384), b'')  # socket closed
+
+        class Protocol(asyncio.Protocol):
+            def connection_made(self, transport):
+                conn_made.set_result(None)
+
+            def data_received(self, data):
+                nonlocal data_recv
+                data_recv = True
+
+            def eof_received(self):
+                eof_recvd.set_result(None)
+
+            def connection_lost(self, exc):
+                if exc is None:
+                    conn_lost.set_result(None)
+                else:
+                    conn_lost.set_exception(exc)
+
+        async def client(addr):
+            ctx = self._create_client_ssl_context()
+            tr, _ = await loop.create_connection(Protocol, *addr, ssl=ctx)
+            await conn_made
+            self.assertFalse(data_recv)
+
+            tr.pause_reading()
+            tr.close()
+
+            await eof_recvd
+            await conn_lost
 
         with self.tcp_server(server) as srv:
             loop.run_until_complete(client(srv.addr))

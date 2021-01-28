@@ -24,7 +24,7 @@ cdef enum AppProtocolState:
 
 cdef class _SSLProtocolTransport:
     cdef:
-        object _loop
+        Loop _loop
         SSLProtocol _ssl_protocol
         bint _closed
 
@@ -41,7 +41,7 @@ cdef class SSLProtocol:
         size_t _write_buffer_size
 
         object _waiter
-        object _loop
+        Loop _loop
         _SSLProtocolTransport _app_transport
         bint _app_transport_created
 
