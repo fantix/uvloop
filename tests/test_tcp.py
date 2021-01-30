@@ -2682,9 +2682,9 @@ class _TestSSL(tb.SSLTestCase):
             # send EOF
             sock.shutdown(socket.SHUT_WR)
 
-            # should receive all data
-            data = sock.recv_all(CHUNK * SIZE)
-            self.assertEqual(len(data), CHUNK * SIZE)
+            # should not receive any data
+            data = sock.recv(CHUNK * SIZE)
+            self.assertEqual(data, b'')
 
             sock.close()
 
@@ -2842,7 +2842,7 @@ class _TestSSL(tb.SSLTestCase):
             sock.shutdown(socket.SHUT_WR)
             loop.call_soon_threadsafe(eof.set)
             # make sure we have enough time to reproduce the issue
-            assert sock.recv(1024) == b''
+            self.assertEqual(sock.recv(1024), b'')
             sock.close()
 
         class Protocol(asyncio.Protocol):
@@ -2875,13 +2875,18 @@ class _TestSSL(tb.SSLTestCase):
             tr.resume_reading()
             await pr.fut
             tr.close()
-            # extra data received after transport.close() is ignored
-            self.assertIsNone(extra)
+            if self.implementation != 'asyncio':
+                # extra data received after transport.close() should be
+                # ignored - this is likely a bug in asyncio
+                self.assertIsNone(extra)
 
         with self.tcp_server(server) as srv:
             loop.run_until_complete(client(srv.addr))
 
     def test_shutdown_while_pause_reading(self):
+        if self.implementation == 'asyncio':
+            raise unittest.SkipTest()
+
         loop = self.loop
         conn_made = loop.create_future()
         eof_recvd = loop.create_future()
@@ -2898,14 +2903,14 @@ class _TestSSL(tb.SSLTestCase):
             while True:
                 try:
                     sslobj.do_handshake()
+                    sslobj.write(b'trailing data')
+                    break
                 except ssl.SSLWantReadError:
                     if outgoing.pending:
                         sock.send(outgoing.read())
                     incoming.write(sock.recv(16384))
-                else:
-                    if outgoing.pending:
-                        sock.send(outgoing.read())
-                    break
+            if outgoing.pending:
+                sock.send(outgoing.read())
 
             while True:
                 try:

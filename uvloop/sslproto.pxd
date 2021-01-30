@@ -65,7 +65,6 @@ cdef class SSLProtocol:
 
         bint _ssl_writing_paused
         bint _app_reading_paused
-        bint _eof_received
 
         size_t _incoming_high_water
         size_t _incoming_low_water
@@ -100,6 +99,7 @@ cdef class SSLProtocol:
 
     cdef _start_shutdown(self)
     cdef _check_shutdown_timeout(self)
+    cdef _do_read_into_void(self)
     cdef _do_flush(self)
     cdef _do_shutdown(self)
     cdef _on_shutdown_complete(self, shutdown_exc)
